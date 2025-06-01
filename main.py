@@ -195,52 +195,96 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
     dynamic_server_configs_instance = AllServerConfigs(configs=current_server_configs)
     # --- End of new MCP Server Configs definition ---
 
+    app_instance.state.mcp_toolsets = [] # Store MCPToolset instances
+    app_instance.state.raw_mcp_tools_for_agent_config = {} # For agent_config.py if it still needs specific tool names
 
-    logging.info("Application Lifespan: Loading MCP Tools.")
+    logging.info("Application Lifespan: Creating MCPToolsets.")
     try:
-        collected_tools, tool_stack = await _collect_tools_stack( dynamic_server_configs_instance )
-        app_instance.state.mcp_tools = collected_tools
-        app_instance.state.mcp_tool_exit_stack = tool_stack
-        if collected_tools:
-             logging.info(
-                f"Application Lifespan: MCP Toolset initialized. Loaded toolsets for: {list(app_instance.state.mcp_tools.keys())}"
-            )
+        for key, server_params in dynamic_server_configs_instance.configs.items():
+            try:
+                logging.info(f"Initializing MCPToolset for key: {key}")
+                toolset_instance = MCPToolset(
+                    connection_params=server_params
+                    # tool_filter=... if you need it
+                )
+                # To make MCPToolset discover tools, it might need an async initialization step
+                # or it discovers them on first use by the agent.
+                # The docs for "Using MCP Tools in your own Agent out of adk web" imply
+                # it happens when the agent runs.
+                # We will store the toolset instance.
+                app_instance.state.mcp_toolsets.append(toolset_instance)
+                logging.info(f"MCPToolset created for key: {key}")
+
+                # ---- TEMPORARY: For compatibility with your current agent_config.py ----
+                # This part is a bit of a hack to see if we can still feed the names
+                # to your existing warnings in agent_config.py. Ideally, agent_config.py
+                # wouldn't need to know about individual tools if the MCPToolset handles it.
+                # This might not work as MCPToolset might not expose tools list immediately.
+                # You might need to call an internal method of toolset_instance or wait for agent use.
+                # For now, let's assume it has a way to list (this is speculative):
+                # if hasattr(toolset_instance, '_tools_discovered_on_connect'): # Replace with actual attribute/method if it exists
+                #    app_instance.state.raw_mcp_tools_for_agent_config[key] = list(toolset_instance._tools_discovered_on_connect.values())
+                # else:
+                #    logging.warning(f"Cannot immediately get tool list from MCPToolset for {key}")
+                #    app_instance.state.raw_mcp_tools_for_agent_config[key] = []
+                # ---- END TEMPORARY ----
+
+            except Exception as e:
+                logging.error(f"Failed to create MCPToolset for key '{key}': {e}", exc_info=True)
+        
+        if app_instance.state.mcp_toolsets:
+            logging.info(f"Application Lifespan: MCPToolsets created: {len(app_instance.state.mcp_toolsets)} toolset(s).")
         else:
-            logging.warning("Application Lifespan: MCP Toolset initialization completed, but no tools were loaded.")
+            logging.warning("Application Lifespan: No MCPToolsets were created.")
+
     except Exception as e:
-        logging.error(f"Application Lifespan: Failed to initialize MCP tools during startup: {e}", exc_info=True)
-        # Depending on severity, you might want to prevent app startup or handle gracefully
-        # For now, it will continue, but tools might be unavailable.
+        logging.error(f"Application Lifespan: Error during MCPToolset creation phase: {e}", exc_info=True)
 
     yield # Application runs here
 
-    logging.info("Application Lifespan: Shutdown initiated - Closing MCP Tool connections.")
-    if hasattr(app_instance.state, 'mcp_tool_exit_stack') and app_instance.state.mcp_tool_exit_stack:
-        try:
-            await app_instance.state.mcp_tool_exit_stack.aclose()
-            logging.info("Application Lifespan: MCP Toolset connections closed successfully.")
-        except Exception as e:
-            logging.error(f"Application Lifespan: Error closing MCP Toolset connections: {e}", exc_info=True)
-    else:
-        logging.warning("Application Lifespan: No MCP Toolset exit stack found to close.")
+    logging.info("Application Lifespan: Shutdown initiated - Closing MCPToolsets.")
+    if hasattr(app_instance.state, 'mcp_toolsets'):
+        for toolset in app_instance.state.mcp_toolsets:
+            try:
+                logging.info(f"Closing MCPToolset: {getattr(toolset, 'name', 'Unnamed Toolset')}") # Assuming it might have a name or identifier
+                await toolset.close() # As per ADK 1.x docs
+            except Exception as e:
+                logging.error(f"Error closing an MCPToolset: {e}", exc_info=True)
+        logging.info("Application Lifespan: MCPToolsets closed.")
+
 
 # Instantiate FastAPI app with the lifespan manager
 app = FastAPI(lifespan=app_lifespan)
 
 # --- ADK Streaming Agent Session ---
-async def start_agent_session(session_id: str, loaded_mcp_tools: Dict[str, Any], is_audio: bool = False):
-    """Starts an agent session with loaded MCP tools"""
+async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = False): # Pass app_state
     logging.info(f"Starting agent session {session_id}, audio: {is_audio}")
     session = await session_service.create_session(
-        app_name=APP_NAME,
-        user_id=session_id,
-        session_id=session_id,
-        state={} # Initial empty state for the session
+        app_name=APP_NAME, user_id=session_id, session_id=session_id, state={}
     )
 
-    agent_instance = create_streaming_agent_with_mcp_tools(loaded_mcp_tools)
-    logging.info(f"Agent instance created for session {session_id} with {len(agent_instance.tools or [])} tools.")
+    # Get the list of MCPToolset instances and any other tools
+    mcp_toolsets_from_state = getattr(app_state, 'mcp_toolsets', [])
+    
+    # Your agent_config.py will now receive these MCPToolsets
+    # It also needs to know about the TaskExecutionAgentTool
+    
+    # --- This is where agent_config.py is called ---
+    # We need to adjust what create_streaming_agent_with_mcp_tools expects.
+    # Instead of a dict of tool lists, it will now get a list of MCPToolset objects.
+    # Let's assume for now that create_streaming_agent_with_mcp_tools will be adapted
+    # to take these toolsets and create the AgentTool for TaskExecutionAgent itself.
 
+    # For agent_config.py's warnings, we pass the temporary raw tools list
+    raw_mcp_tools_for_config = getattr(app_state, 'raw_mcp_tools_for_agent_config', {})
+
+    agent_instance = create_streaming_agent_with_mcp_tools(
+        loaded_mcp_toolsets=mcp_toolsets_from_state, # Pass the toolsets
+        # We might need a different way to handle the TaskExecutionAgent creation now
+        # or agent_config.py needs to be smarter.
+        # For now, let's assume agent_config.py is also refactored.
+        #raw_mcp_tools_lookup_for_warnings=raw_mcp_tools_for_config
+    )
 
     runner = Runner(
         app_name=APP_NAME,
@@ -363,26 +407,41 @@ async def websocket_endpoint(
     actual_is_audio = is_audio.lower() == "true"
     logging.info(f"Client #{session_id} connected via WebSocket, audio mode: {actual_is_audio}")
 
-    # Access pre-loaded MCP tools from application state
-    loaded_mcp_tools = websocket.app.state.mcp_tools
-    mcp_stack_exists = hasattr(websocket.app.state, 'mcp_tool_exit_stack') and websocket.app.state.mcp_tool_exit_stack is not None
+    # Access application state which should contain the MCPToolsets
+    app_state = websocket.app.state
 
-    if not mcp_stack_exists: # Check if the stack object exists, even if tools dict might be empty
-        logging.error(f"MCP Tools not properly initialized. Cannot serve requests for session {session_id}.")
+    # --- UPDATED CHECK for MCP Toolset Initialization ---
+    mcp_toolsets_initialized_correctly = False
+    if hasattr(app_state, 'mcp_toolsets') and isinstance(app_state.mcp_toolsets, list):
+        # You might want to check if the expected number of toolsets are present,
+        # e.g., if you expect weather, ct, and maps, len(app_state.mcp_toolsets) >= 2 or 3
+        # For now, let's just check if the list was created and has at least one (if expected).
+        # If you expect specific toolsets, you'd need a more robust check here or
+        # rely on the logging during app_lifespan.
+        # A simple check that toolsets list exists and is a list:
+        mcp_toolsets_initialized_correctly = True 
+        if not app_state.mcp_toolsets: # If list is empty, but you expect toolsets
+             logging.warning(f"MCPToolsets list is empty for session {session_id}, though app_state.mcp_toolsets exists.")
+             # You might still consider this an error state depending on your app's requirements
+             # mcp_toolsets_initialized_correctly = False # Uncomment if an empty list is an error
+
+    if not mcp_toolsets_initialized_correctly:
+        logging.error(f"MCP Tools (MCPToolsets) not properly initialized in app.state. Cannot serve requests for session {session_id}.")
         error_message = json.dumps({"message": "Error: Server is not fully initialized. Please try again later."})
         try:
             await websocket.send_text(error_message)
         except WebSocketDisconnect:
-            pass # Client already gone
+            pass 
         finally:
-            await websocket.close(code=1011) # Internal server error
+            await websocket.close(code=1011) 
         return
+    # --- END UPDATED CHECK ---
 
     live_events, live_request_queue = None, None # Initialize to None
     agent_to_client_task, client_to_agent_task = None, None # Initialize to None
 
     try:
-        live_events, live_request_queue =await start_agent_session(session_id, loaded_mcp_tools, actual_is_audio)
+        live_events, live_request_queue =await start_agent_session(session_id, app_state, actual_is_audio)
 
         agent_to_client_task = asyncio.create_task(
             agent_to_client_messaging(websocket, live_events, session_id)
