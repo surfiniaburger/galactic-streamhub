@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADK Galactic StreamHub</title>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Vanta.js dependencies -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script> <!-- VANTA.SPACE uses three.js -->
+    <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.dots.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
+</head>
+<body class="dark-theme">
+
+    <div id="app-container">
+      
+        <div id="vanta-fog-background"></div>
+        <div id="threed-background"></div> 
+        <header class="app-header">
+            <h1>ADK Galactic StreamHub</h1>
+        </header>
+
+        <main class="app-main">
+            <section id="stream-controls-panel" class="panel">
+                <h2>Stream Controls</h2>
+                <div id="controls" class="button-group">
+                    <button type="button" id="startAudioButton" class="toggle-3d">
+                        <span class="button-top-face">Audio</span>
+                        <span class="button-front-face"></span>
+                        <span class="button-side-face"></span>
+                    </button>
+
+                            <!-- **** NEW: Audio Loader **** -->
+                     <div id="audio-loader" class="loading-spinner-container hidden"> <!-- Starts hidden -->
+                        <div class="loader-dots">
+                           <div></div><div></div><div></div><div></div>
+                        </div>
+                           <p class="loader-text">Initializing Audio...</p>
+                     </div>
+                            <!-- **** END: Audio Loader **** -->
+                             
+                    <button type="button" id="startVideoButton" class="toggle-3d">
+                        <span class="button-top-face">Start Video</span>
+                        <span class="button-front-face"></span>
+                        <span class="button-side-face"></span>
+                    </button>
+                </div>
+            </section>
+
+            <section id="media-display-panel" class="panel hidden-animated">
+                <h2>Live Feed</h2>
+                <div id="media-display">
+                    <video id="videoPreview" width="640" height="480" autoplay playsinline muted></video>
+                    <canvas id="videoCanvas" style="display:none;"></canvas>
+                </div>
+            </section>
+
+            <section id="chat-panel" class="panel">
+                <h2>Comms Channel</h2>
+                <div id="chat-container">
+                    <div id="messages">
+                        <div class="message system">Welcome to the Galactic StreamHub!</div>
+                        <!-- Example messages -->
+                        <!-- <div class="message user">User_Alpha: Checking in.</div> -->
+                        <!-- <div class="message remote">User_Beta: Loud and clear!</div> -->
+                    </div>
+                    <form id="messageForm">
+                        <label for="message" class="visually-hidden">Message:</label>
+                        <input type="text" id="message" name="message" placeholder="Transmit your message..." />
+                        <button type="submit" id="sendButton" class="send-button-3d" disabled>
+                            <span class="button-top-face">Send</span>
+                            <span class="button-front-face"></span>
+                        </button>
+                    </form>
+                </div>
+            </section>
+        </main>
+
+        <footer class="app-footer">
+            <p>© 2025 ADK Initiative - Nexus Division</p>
+        </footer>
+    </div>
+
+    <script src="/static/js/app.js" type="module"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const fogBackgroundElement = document.getElementById('vanta-fog-background');
+            const dotsBackgroundElement = document.getElementById('threed-background');
+
+            // Initialize VANTA.FOG (Subtle Nebula)
+            if (fogBackgroundElement && window.VANTA && window.VANTA.FOG) {
+                VANTA.FOG({
+                    el: fogBackgroundElement,
+                    mouseControls: true,
+                    touchControls: true,
+                    gyroControls: false,
+                    minHeight: 200.00,
+                    minWidth: 200.00,
+                    scale: 1.00,
+                    highlightColor: 0x223355, // Muted blue/purple for nebula highlight
+                    midtoneColor: 0x112244,   // Muted blue/purple for nebula midtone
+                    lowlightColor: 0x0a0f1f,  // Should blend with your main background
+                    baseColor: 0x0a0f1f,      // Should blend with your main background
+                    blurFactor: 0.6,         // Adjust for softness (0.0 to 1.0)
+                    speed: 0.3,              // Very slow movement
+                    zoom: 0.4                // Zoom out to make it feel distant
+                });
+                console.log("VANTA.FOG initialized for nebula effect.");
+            } else {
+                console.warn("VANTA.FOG prerequisites not met.");
+            }
+
+            // Initialize VANTA.DOTS (Stars - as configured before)
+            if (dotsBackgroundElement && window.VANTA && window.VANTA.DOTS) {
+                VANTA.DOTS({
+                    el: dotsBackgroundElement,
+                    mouseControls: true,
+                    touchControls: true,
+                    // ... other DOTS options from step 1 ...
+                    backgroundColor: 0x00000000, // TRANSPARENT for DOTS layer
+                    color: 0xffffff,
+                    color2: 0x00f2ff,
+                    size: 2.8,
+                    spacing: 30.00,
+                    showLines: false
+                });
+                console.log("VANTA.DOTS initialized over fog.");
+            } else {
+                console.warn("VANTA.DOTS prerequisites not met for layering.");
+            }
+
+            // ... rest of your existing DOMContentLoaded logic from app.js if it was here ...
+        });
+    </script>
+</body>
+</html>

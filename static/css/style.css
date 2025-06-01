@@ -1,0 +1,583 @@
+/* style.css */
+:root {
+  --primary-bg: #0a0f1f; /* Deep space blue/black */
+  --secondary-bg: rgba(20, 26, 48, 0.65); /* Semi-transparent for panels */
+  --tertiary-bg: rgba(30, 38, 68, 0.85); /* Slightly more opaque for focused elements */
+  --accent-color: #00f2ff; /* Cyber cyan */
+  --accent-hover: #00c0cc;
+  --accent-active: #00a0b3;
+  --text-color: #e0e0e0;
+  --text-muted: #a0a0a0;
+  --border-color: #2a304f;
+  --glow-color: rgba(0, 242, 255, 0.5);
+  --glow-color-intense: rgba(0, 242, 255, 0.8);
+  --danger-color: #ff3b30;
+
+  --font-primary: 'Orbitron', sans-serif;
+  --font-secondary: 'Roboto', sans-serif;
+
+  --button-depth: 4px; /* Depth for 3D buttons */
+  --button-bg: var(--accent-color);
+  --button-text-color: var(--primary-bg);
+  --button-shadow-color: #008c99;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body.dark-theme {
+  background-color: var(--primary-bg); /* Fallback if 3D bg doesn't load */
+  color: var(--text-color);
+  font-family: var(--font-secondary);
+  margin: 0;
+  padding: 0;
+  line-height: 1.6;
+  overflow-x: hidden;
+  position: relative; /* For stacking context */
+}
+
+#threed-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1; /* Behind all content */
+  /* Vanta.js will control this, or use a static fallback */
+  background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+}
+
+#app-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  position: relative; /* Ensure it's above the #threed-background */
+  z-index: 1;
+}
+
+.app-header {
+  background-color: rgba(10, 15, 31, 0.7); /* Darker, more transparent header */
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  padding: 1rem 1.5rem;
+  text-align: center;
+  border-bottom: 1px solid var(--border-color);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+  position: sticky;
+  top: 0;
+  z-index: 100; /* Keep header on top */
+}
+
+.app-header h1 {
+  font-family: var(--font-primary);
+  color: var(--accent-color);
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2.2rem); /* Responsive font size */
+  letter-spacing: 3px;
+  text-shadow: 0 0 8px var(--glow-color), 0 0 12px var(--glow-color);
+  animation: pulse-glow 3s infinite alternate;
+}
+
+@keyframes pulse-glow {
+  from { text-shadow: 0 0 8px var(--glow-color), 0 0 12px var(--glow-color); }
+  to { text-shadow: 0 0 12px var(--glow-color-intense), 0 0 20px var(--glow-color-intense); }
+}
+
+.app-main {
+  flex-grow: 1;
+  padding: 1rem;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 1fr; /* Single column for mobile */
+}
+
+/* Tablet and smaller desktop layouts */
+@media (min-width: 768px) {
+  .app-main {
+      padding: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  }
+  #media-display-panel {
+       /* Allow media panel to span if it's the widest */
+      grid-column: 1 / -1; /* Default to full width */
+  }
+  #stream-controls-panel, #chat-panel {
+      max-height: 80vh; /* Prevent excessive height */
+  }
+}
+
+/* Larger desktop layout */
+@media (min-width: 1024px) {
+  .app-main {
+      padding: 2rem;
+      grid-template-columns: 1fr 2fr; /* Sidebar layout */
+       /* grid-template-rows: auto 1fr;  Allow dynamic row sizing */
+  }
+  #stream-controls-panel {
+      grid-column: 1 / 2;
+      grid-row: 1 / 2; /* First item in first row */
+  }
+  #media-display-panel {
+      grid-column: 2 / 3; /* Main content area */
+      grid-row: 1 / 2;    /* Alongside controls */
+  }
+  #chat-panel {
+      grid-column: 1 / -1; /* Span full width below others */
+      grid-row: 2 / 3;
+      max-height: 500px; /* Or adjust as needed */
+      display: flex;
+      flex-direction: column;
+  }
+}
+@media (min-width: 1400px) {
+  .app-main {
+      grid-template-columns: 350px 1fr 350px; /* Three columns: controls, media, chat */
+      grid-template-rows: 1fr; /* Single row */
+  }
+  #stream-controls-panel {
+      grid-column: 1 / 2;
+      grid-row: 1 / 2;
+  }
+  #media-display-panel {
+      grid-column: 2 / 3;
+      grid-row: 1 / 2;
+  }
+  #chat-panel {
+      grid-column: 3 / 4;
+      grid-row: 1 / 2;
+      max-height: calc(100vh - 120px); /* Example: full viewport height minus header/footer */
+  }
+}
+
+
+.panel {
+  background-color: var(--secondary-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 0 25px rgba(0, 0, 0, 0.3), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.05),
+              inset 0 0 15px rgba(0, 242, 255, 0.1);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+.panel:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 5px 35px rgba(0, 242, 255, 0.2), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.07),
+              inset 0 0 20px rgba(0, 242, 255, 0.15);
+}
+
+.panel h2 {
+  font-family: var(--font-primary);
+  color: var(--accent-color);
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.75rem;
+  font-size: 1.4rem;
+  text-shadow: 0 0 5px var(--glow-color);
+}
+
+.button-group {
+  display: flex;
+  flex-direction: column; /* Stack buttons vertically */
+  gap: 1.5rem; /* Increased gap for better touch targets and visual separation */
+}
+
+/* --- 3D Button Styling --- */
+.toggle-3d, .send-button-3d {
+  position: relative;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  outline: none;
+  padding: 0; /* Padding will be on the top face */
+  transform-style: preserve-3d;
+  transition: transform 0.15s cubic-bezier(0, 0, 0.58, 1);
+  min-width: 160px;
+  height: calc(40px + var(--button-depth)); /* Height of top face + depth */
+  align-self: flex-start; /* Align buttons to the start of flex container if in a row */
+}
+
+.button-top-face {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 40px; /* Height of the top surface */
+  background: var(--button-bg);
+  color: var(--button-text-color);
+  font-family: var(--font-primary);
+  font-weight: bold;
+  font-size: 0.9rem;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transform: translateZ(var(--button-depth)); /* This is the top surface, lifted by button-depth */
+  transition: background-color 0.2s, color 0.2s, transform 0.2s, box-shadow 0.2s;
+  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+}
+
+.button-front-face, .button-side-face {
+  position: absolute;
+  width: 100%;
+  height: var(--button-depth); /* Thickness of the button */
+  background: var(--button-shadow-color);
+  border-radius: 0 0 6px 6px; /* Round bottom corners */
+}
+
+.button-front-face {
+  bottom: 0; /* Positioned at the very bottom */
+  left: 0;
+  transform: rotateX(-90deg) translateY(calc(var(--button-depth) * -0.5)) translateZ(calc(var(--button-depth) * 0.5));
+  /* Creates the front edge */
+}
+
+.toggle-3d .button-side-face { /* Specific to buttons needing a visible side */
+  width: var(--button-depth); /* Thickness */
+  height: 40px; /* Match top face height */
+  top: 0;
+  right: -1px; /* Position to the side */
+  border-radius: 0 6px 6px 0;
+  transform: rotateY(90deg) translateX(calc(var(--button-depth) * 0.5)) translateZ(calc(100% - var(--button-depth) * 0.5));
+  /* Creates the right edge */
+  background: color-mix(in srgb, var(--button-shadow-color) 80%, black); /* Even darker side */
+}
+
+
+.toggle-3d:hover, .send-button-3d:hover {
+  transform: translateY(-2px); /* Lift button slightly */
+}
+.toggle-3d:hover .button-top-face, .send-button-3d:hover .button-top-face {
+  background-color: var(--accent-hover);
+  box-shadow: 0 0 15px var(--glow-color-intense);
+}
+
+.toggle-3d:active, .send-button-3d:active {
+  transform: translateY(var(--button-depth) / 2); /* Push button "down" */
+}
+.toggle-3d:active .button-top-face, .send-button-3d:active .button-top-face {
+  transform: translateZ(calc(var(--button-depth) / 2)); /* Sink top face */
+  background-color: var(--accent-active);
+  box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
+}
+
+
+button:disabled .button-top-face {
+  background-color: #555 !important;
+  color: #999 !important;
+  cursor: not-allowed;
+  box-shadow: none !important;
+}
+button:disabled .button-front-face, button:disabled .button-side-face {
+  background: #444 !important;
+}
+button:disabled {
+  cursor: not-allowed;
+  transform: translateY(0) !important; /* No movement */
+}
+
+
+/* Media Display */
+#media-display {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #000; /* Solid black background for video */
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 240px; /* Minimum height for the video area */
+  border: 1px solid var(--border-color);
+}
+
+#videoPreview {
+  width: 100%;
+  height: auto; /* Maintain aspect ratio */
+  max-height: 60vh; /* Limit video height on large screens */
+  display: block;
+  border-radius: 6px; /* Slight rounding if smaller than container */
+}
+
+/* Chat Area */
+#chat-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%; /* Ensure it fills its grid area */
+  min-height: 300px; /* Minimum height for usability */
+}
+
+#chat-container {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* Prevent content from spilling */
+}
+
+#messages {
+  flex-grow: 1;
+  background-color: rgba(10, 15, 31, 0.8);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px 15px;
+  margin-bottom: 15px;
+  overflow-y: auto;
+  min-height: 150px;
+  word-break: break-word;
+}
+
+.message {
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+.message.system {
+  background-color: rgba(0, 242, 255, 0.1);
+  color: var(--accent-color);
+  font-style: italic;
+  text-align: center;
+  font-size: 0.9em;
+}
+.message.user {
+  background-color: rgba(0, 100, 120, 0.3);
+  margin-left: auto;
+  max-width: 70%;
+  text-align: right;
+}
+.message.remote {
+  background-color: rgba(50, 60, 90, 0.4);
+  max-width: 70%;
+}
+
+
+#messageForm {
+  display: flex;
+  gap: 10px;
+  align-items: stretch; /* Make items same height */
+}
+
+#messageForm input[type="text"] {
+  flex-grow: 1;
+  padding: 10px 15px; /* Match button height */
+  background-color: var(--tertiary-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-color);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+  height: calc(40px + var(--button-depth)); /* Match button container height */
+}
+
+#messageForm input[type="text"]:focus {
+  border-color: var(--accent-color);
+  background-color: var(--primary-bg);
+  box-shadow: 0 0 10px var(--glow-color);
+}
+
+/* Ensure send button aligns with input */
+#sendButton.send-button-3d {
+  min-width: 80px; /* Adjust as needed */
+  flex-shrink: 0; /* Prevent shrinking */
+}
+#sendButton.send-button-3d .button-top-face{
+  font-size: 0.9rem;
+}
+
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(10, 15, 31, 0.5);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--accent-color);
+  border-radius: 5px;
+  border: 2px solid rgba(10, 15, 31, 0.5); /* Creates padding around thumb */
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-hover);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+
+/* Accessibility */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+  white-space: nowrap; /* Prevent line breaks from affecting layout */
+}
+
+/* Footer */
+.app-footer {
+  text-align: center;
+  padding: 1.5rem 1rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-color);
+  margin-top: auto; /* Pushes footer to bottom */
+  background-color: rgba(10, 15, 31, 0.7);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+}
+
+/* style.css (add this class definition) */
+
+/* ... (all your existing CSS) ... */
+
+/* style.css */
+/* ... your existing styles ... */
+
+#media-display-panel {
+  /* ... your existing panel styles ... */
+  opacity: 1;
+  visibility: visible;
+  transform: scale(1) translateY(0);
+  transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+              transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+              visibility 0s linear 0s; /* Instant visibility change, no delay when becoming visible */
+}
+
+#media-display-panel.hidden-animated { /* New class for animated hide */
+  opacity: 0;
+  transform: scale(0.95) translateY(15px);
+  pointer-events: none; /* Prevent interaction when hidden */
+  visibility: hidden;
+  transition: opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+              transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+              visibility 0s linear 0.3s; /* Delay visibility change until after animation */
+}
+
+/* Remove the old .hidden if it was just display:none */
+/* If you still need a non-animated instant hide for other things, keep .hidden:
+.hidden { display: none !important; }
+*/
+/* ... (rest of your CSS) ... */
+
+/* style.css */
+/* ... your existing styles ... */
+
+#vanta-fog-background, #threed-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -2; /* Fog layer even further back */
+}
+
+#threed-background { /* This is now for DOTS */
+  z-index: -1; /* Dots layer above fog, but behind content */
+  /* Vanta will set its own background, ensure it's transparent in JS options */
+}
+
+#app-container {
+  /* ... existing styles ... */
+  position: relative; /* Ensure this is still true */
+  z-index: 1;         /* Ensure app content is above all Vanta layers */
+}
+
+/* style.css */
+.loading-spinner-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  /* Position it as needed, e.g., absolute within a panel */
+}
+
+.loader-dots {
+display: inline-block;
+position: relative;
+width: 80px;
+height: 80px;
+}
+.loader-dots div {
+position: absolute;
+top: 33px;
+width: 13px;
+height: 13px;
+border-radius: 50%;
+background: var(--accent-color); /* Use your cyan */
+animation-timing-function: cubic-bezier(0, 1, 1, 0);
+}
+.loader-dots div:nth-child(1) {
+left: 8px;
+animation: loader-dots1 0.6s infinite;
+box-shadow: 0 0 5px var(--glow-color);
+}
+.loader-dots div:nth-child(2) {
+left: 8px;
+animation: loader-dots2 0.6s infinite;
+}
+.loader-dots div:nth-child(3) {
+left: 32px;
+animation: loader-dots2 0.6s infinite;
+box-shadow: 0 0 5px var(--glow-color);
+}
+.loader-dots div:nth-child(4) {
+left: 56px;
+animation: loader-dots3 0.6s infinite;
+}
+
+.loader-text {
+  margin-top: 10px;
+  color: var(--accent-color);
+  font-family: var(--font-secondary);
+  font-size: 0.9em;
+  text-shadow: 0 0 3px var(--glow-color);
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Styling for the loader container within the button group if needed */
+#controls .loading-spinner-container {
+  margin-top: 15px; /* Add some space below the button */
+  /* Or, if you want it to feel like it replaces the button,
+     you might hide the button and show the loader in its place.
+     For now, this places it below. */
+}
+
+
+@keyframes loader-dots1 {
+0% {
+  transform: scale(0);
+}
+100% {
+  transform: scale(1);
+}
+}
+@keyframes loader-dots3 {
+0% {
+  transform: scale(1);
+}
+100% {
+  transform: scale(0);
+}
+}
+@keyframes loader-dots2 {
+0% {
+  transform: translate(0, 0);
+}
+100% {
+  transform: translate(24px, 0);
+}
+}
+
