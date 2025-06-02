@@ -2,7 +2,6 @@
 from google.adk.agents.llm_agent import LlmAgent
 from typing import Any, Dict, List
 import logging
-from google.adk.tools.mcp_tool.mcp_tool import MCPTool # Import MCPTool to check its type
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 

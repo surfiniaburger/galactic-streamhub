@@ -293,7 +293,36 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
     )
 
     modality = "AUDIO" if is_audio else "TEXT"
-    run_config = RunConfig(response_modalities=[modality])
+    # Initialize parameters for RunConfig
+    run_config_args = {
+        "response_modalities": [modality] 
+        # Other defaults like 'save_input_blobs_as_artifacts': False, 'support_cfc': False will apply
+    }
+
+    if is_audio:
+        # Enable output audio transcription when in audio mode
+        # The Vertex AI docs show this as an empty dict {} or a specific config object.
+        # Let's try with an empty dict first, which usually means "enable with defaults".
+        run_config_args["output_audio_transcription"] = {} 
+        logging.info(f"Session {session_id}: Enabling output_audio_transcription for audio mode.")
+
+        # Optionally, if you also want to transcribe the user's input audio:
+        run_config_args["input_audio_transcription"] = {}
+
+        # Optionally, if you want to configure the voice (example from ADK docs):
+        # from google.genai.types import VoiceConfig, PrebuiltVoiceConfig, SpeechConfig # Make sure these are imported
+        # voice_config = VoiceConfig(
+        #     prebuilt_voice_config=PrebuiltVoiceConfig(voice_name='Aoede') # Example voice
+        # )
+        # adk_speech_config = SpeechConfig(voice_config=voice_config) # This is google.genai.types.SpeechConfig
+        # run_config_args["speech_config"] = adk_speech_config
+        # logging.info(f"Session {session_id}: Custom speech_config applied for audio mode.")
+
+
+    run_config = RunConfig(**run_config_args) # Pass arguments as a dictionary
+
+
+
     live_request_queue = LiveRequestQueue()
 
     live_events = runner.run_live(

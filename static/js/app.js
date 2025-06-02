@@ -77,7 +77,7 @@ function connectWebsocket() {
             let messageElem = document.getElementById(currentMessageId);
             if (!messageElem) {
                 currentMessageId = "msg_" + Math.random().toString(36).substring(7);
-                messageElem = document.createElement("p"); // Should be 'div' to match your HTML structure for messages
+                messageElem = document.createElement("div"); // Should be 'div' to match your HTML structure for messages
                 messageElem.id = currentMessageId;
                 messageElem.classList.add("message", "remote"); // Use consistent class with HTML
                 messagesDiv.appendChild(messageElem);
