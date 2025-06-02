@@ -2,8 +2,8 @@
 from google.adk.agents.llm_agent import LlmAgent
 from typing import Any, Dict, List
 import logging
-from google.adk.tools.mcp_tool.mcp_tool import MCPTool # Import MCPTool to check its type
 from google.adk.tools.agent_tool import AgentTool
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 
 MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
 GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
@@ -72,47 +72,33 @@ If you are absolutely unable to help with a request, or if none of your tools (i
 """
 
 
-def create_streaming_agent_with_mcp_tools(loaded_mcp_tools: Dict[str, Any]) -> LlmAgent:
-    """
-    Creates the Root LlmAgent configured with pre-loaded MCP tools for streaming,
-    and includes the TaskExecutionAgent (wrapped in AgentTool) as one of its tools.
-    """
+def create_streaming_agent_with_mcp_tools(
+    loaded_mcp_toolsets: List[MCPToolset], 
+    #raw_mcp_tools_lookup_for_warnings: Dict[str, Any] # Temporary, for the warnings
+) -> LlmAgent:
+    
     all_root_agent_tools: List[Any] = []
+
+    # 1. Add all MCPToolset instances directly to the agent's tools
+    if loaded_mcp_toolsets:
+        all_root_agent_tools.extend(loaded_mcp_toolsets)
+        logging.info(f"Added {len(loaded_mcp_toolsets)} MCPToolset instance(s) to Root Agent tools.")
     
-    # These are the MCP tools (like Cocktail, Maps) that the Root Agent can use directly,
-    # and which the TaskExecutionAgent will effectively call through the Root Agent's context.
-    mcp_tool_instances_for_root_agent: List[Any] = []
+    # Remove the old MCPTool processing loop and patching for MCPTools.
+    # The MCPToolset instance handles its internal tools.
 
-    # 1. Process and Prepare MCP Tools (Weather, Cocktail, Maps, etc.)
-    tool_keys_to_process = ["weather", "ct", "bnb", "maps"] # Ensure 'ct' (cocktail) and 'maps' are available
-    for tool_key in tool_keys_to_process:
-        tool_list_or_item = loaded_mcp_tools.get(tool_key)
-
-        if not tool_list_or_item:
-            logging.warning(f"MCP tools for key '{tool_key}' not found in loaded_mcp_tools. Dependent functionalities might be affected.")
-            continue
-
-        current_key_tools = []
-        if isinstance(tool_list_or_item, list):
-            current_key_tools.extend(tool_list_or_item)
-        else: # Assumed to be a single tool object
-            current_key_tools.append(tool_list_or_item)
-
-        for tool_item in current_key_tools:
-            if isinstance(tool_item, MCPTool):
-                # Patch for ADK streaming tool handler (expects 'tool.func')
-                # This points to the tool's own async execution method.
-                tool_item.func = tool_item.run_async
-                logging.info(f"Patched MCPTool '{getattr(tool_item, 'name', 'Unnamed MCPTool')}' from key '{tool_key}' with .func attribute.")
-                logging.info(f"Patched MCPTool '{getattr(tool_item, 'name', 'Unnamed MCPTool')}' with .func. Type: {type(tool_item)}, Attrs: {dir(tool_item)[:5]}...") 
-            mcp_tool_instances_for_root_agent.append(tool_item)
-    
-    all_root_agent_tools.extend(mcp_tool_instances_for_root_agent)
-
-    if not any(tool.name == "Cocktail" for tool in mcp_tool_instances_for_root_agent if hasattr(tool, 'name')):
-        logging.warning("Agent Configuration: 'Cocktail' MCP tool not found. TaskExecutionAgent's recipe functionality will be impaired.")
-    if not any(tool.name == "GoogleMaps" for tool in mcp_tool_instances_for_root_agent if hasattr(tool, 'name')): # Adjust 'GoogleMaps' if your tool has a different name
-        logging.warning("Agent Configuration: 'Google Maps' MCP tool not found. TaskExecutionAgent's location finding will be impaired.")
+    # --- Still check for presence for warnings (using the temporary raw_mcp_tools_lookup_for_warnings) ----
+    # This part is a bit clunky now. Ideally, these warnings would be based on whether
+    # the *MCPToolset* for 'ct' or 'maps' was successfully created.
+    # For a quick check:
+    # if not any(ts for ts in loaded_mcp_toolsets if "Cocktail" in getattr(ts, 'name', '').lower() or "ct" in getattr(ts, '_some_key_identifier', '')): # This is highly speculative
+    #    logging.warning("Agent Configuration: 'Cocktail' MCPToolset might be missing...")
+    # if not any(ts for ts in loaded_mcp_toolsets if "maps" in getattr(ts, 'name', '').lower()):
+    #    logging.warning("Agent Configuration: 'Google Maps' MCPToolset might be missing...")
+    # This warning logic needs to be rethought based on how to identify which toolset is which.
+    # For now, let's rely on the warnings from main.py during toolset creation.
+    # The warnings you had about 'Cocktail' MCP tool not found will still trigger based on the
+    # temporary raw_mcp_tools_lookup_for_warnings if we still populate it, but it's not ideal.
 
     # 2. Create the TaskExecutionAgent instance
     # This agent is designed to be called by the Root Agent.
@@ -192,3 +178,8 @@ def create_streaming_agent_with_mcp_tools(loaded_mcp_tools: Dict[str, Any]) -> L
         logging.warning("Root Agent has no tools configured.")
 
     return root_agent
+
+
+
+
+
