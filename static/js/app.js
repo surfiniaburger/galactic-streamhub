@@ -100,6 +100,9 @@ function connectWebsocket() {
     };
 }
 
+
+
+
 function appendLog(text, type = "system") {
     const messageDiv = document.createElement("div"); // Changed from 'p' to 'div'
     messageDiv.classList.add("message", type); // e.g. "message system", "message user"
