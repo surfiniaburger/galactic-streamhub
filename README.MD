@@ -10,7 +10,7 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
 **[https://devpost.com/software/galactic-streamhub]**
 **[https://medium.com/@James_Masciano/ava-building-a-glimpse-of-i-o-2025s-agentic-multimodal-future-with-google-s-adk-for-bddbaac17d3c]** 
 
-**(Optional: Insert a compelling screenshot or GIF of your UI here)**
+
 ![Galactic StreamHub UI](/assets/ui.png)
 
 ## Table of Contents
@@ -69,7 +69,7 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   Its instructions guide it to use tools (like Cocktail or Maps, invoked through the Root Agent's context) and synthesize a comprehensive response.
 5.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
 
-**(Optional: Embed your architecture diagram here if you have one)**
+
 ![Architecture Diagram](/assets/flowchart.jpg)
 
 ## Tech Stack
@@ -229,7 +229,7 @@ To deploy this application to Google Cloud Run:
       --project $PROJECT_ID \
       --memory 4G \
       --allow-unauthenticated
-    ```
+```
 
     On successful deployment, you will be provided a URL to the Cloud Run service
 
@@ -291,4 +291,4 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 *   The FastAPI and Uvicorn communities.
 *   Vanta.js for the cool animated background.
 *   Participants and organizers of the #adkhackathon.
-```
+
