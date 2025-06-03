@@ -1,175 +1,170 @@
-Okay, here's a comprehensive README.md for your new ADK Streaming application that integrates MCP tools.
+# AVA - Galactic StreamHub: A Multimodal, Multi-Agent AI Assistant
 
-```markdown
-# ADK Streaming Agent with MCP Tool Integration
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) 
 
-## Overview
+**Hackathon Project for the Agent Development Kit Hackathon with Google Cloud #adkhackathon**
 
-This application demonstrates a real-time, streaming-capable agent built using the Google Agent Development Kit (ADK). The agent can interact with users via text and potentially audio (if client-side support is implemented fully for audio I/O), and leverages tools loaded from Model Context Protocol (MCP) servers to answer queries related to cocktails, weather, and Airbnb bookings.
+Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! This project showcases a sophisticated multi-agent AI system built using Google's Agent Development Kit (ADK). AVA can interact via text, voice, and live video, understand complex user goals, perceive the user's environment, and orchestrate tasks using specialized tools and delegated agents.
 
-The application uses FastAPI as the web backend and WebSockets for streaming communication. MCP tools are loaded dynamically at application startup and are made available to the ADK agent.
+**[https://galatic-streamhub-140457946058.us-central1.run.app/]** 
+**[https://devpost.com/software/galactic-streamhub]**
+**[https://medium.com/@James_Masciano/ava-building-a-glimpse-of-i-o-2025s-agentic-multimodal-future-with-google-s-adk-for-bddbaac17d3c]** 
+
+**(Optional: Insert a compelling screenshot or GIF of your UI here)**
+![Galactic StreamHub UI](/assets/ui.png)
+
+## Table of Contents
+
+*   [Features](#features)
+*   [Architecture Overview](#architecture-overview)
+*   [Tech Stack](#tech-stack)
+*   [Setup & Installation](#setup--installation)
+    *   [Prerequisites](#prerequisites)
+    *   [Clone Repository](#clone-repository)
+    *   [Environment Configuration](#environment-configuration)
+*   [Running the Application Locally](#running-the-application-locally)
+*   [Running MCP Servers](#running-mcp-servers)
+*   [Deployment (Example: Google Cloud Run)](#deployment-example-google-cloud-run)
+*   [Project Structure](#project-structure)
+*   [Key Learnings & Workarounds](#key-learnings--workarounds)
+*   [Future Enhancements](#future-enhancements)
+*   [Contributing](#contributing)
+*   [License](#license)
+*   [Acknowledgements](#acknowledgements)
 
 ## Features
 
-*   **Real-time Streaming:** Bidirectional communication with the ADK agent using WebSockets.
-*   **MCP Tool Integration:** Dynamically loads and utilizes tools from local and remote MCP servers.
-    *   **Cocktail MCP Server:** Provides tools for cocktail recipes and ingredients.
-    *   **Weather MCP Server:** Provides tools for weather forecasts.
-    *   **Airbnb MCP Server (Optional):** Can be configured to provide tools for Airbnb listings (requires separate setup or ADK management).
-*   **Configurable Agent:** Agent behavior and instructions are defined in `agent_config.py`.
-*   **FastAPI Backend:** Robust and modern Python web framework.
-*   **Lifespan Management:** MCP tools are loaded on startup and gracefully shut down on application exit.
-*   **Environment-based Configuration:** Uses a `.env` file for API keys and cloud project settings.
+*   **Multimodal Interaction:** Communicate with AVA via text, voice, and live video stream.
+*   **Visual Understanding:** AVA can analyze objects and elements from your live webcam feed.
+*   **Multi-Agent System:**
+    *   A **Root Agent** (multimodal) acts as the primary interface and orchestrator.
+    *   A specialized **TaskExecutionAgent** handles complex, multi-step tasks requiring reasoning based on visual context and tool usage.
+*   **Tool Integration (MCP):** Leverages Model Context Protocol (MCP) tools for:
+    *   Cocktail recipes
+    *   Weather information
+    *   Google Maps functionalities (geocoding, place search)
+*   **Real-time Streaming:** Bidirectional streaming of audio and text using WebSockets.
+*   **Dynamic UI:** A futuristic, dark-themed web interface with 3D animated elements and a space-themed background.
 
-## Architecture
+## Architecture Overview
 
-The application consists of:
+AVA employs a multi-agent architecture orchestrated by the Google Agent Development Kit:
 
-1.  **FastAPI Server (`main.py`):**
-    *   Manages WebSocket connections for streaming communication with clients.
-    *   Uses a lifespan manager to initialize and close MCP tool connections.
-    *   Handles HTTP requests (e.g., serving the frontend).
-2.  **ADK Agent (`agent_config.py`):**
-    *   An `LlmAgent` instance configured with a specific Gemini model.
-    *   Provided with the loaded MCP tools to handle user queries.
-3.  **ADK Runner & Streaming Components:**
-    *   `Runner` orchestrates the agent's live interaction.
-    *   `LiveRequestQueue` manages incoming user messages for the agent.
-4.  **MCP Toolset & Servers (`mcp_server/`):**
-    *   `MCPToolset` connects to MCP servers defined by `StdioServerParameters`.
-    *   Local Python scripts (`cocktail.py`, `weather_server.py`) act as MCP servers.
-    *   The Airbnb MCP server can be a publicly hosted one or run locally.
-5.  **Static Frontend (`static/`):**
-    *   `index.html` and associated JavaScript for client-side interaction (you'll need to implement this based on the WebSocket endpoint).
+1.  **Client (Web Browser):** Provides the user interface for text, voice (Web Audio API), and video (WebRTC/HTML5 Media) input. Communicates with the backend via WebSockets.
+2.  **Backend (FastAPI Server):**
+    *   Manages WebSocket connections.
+    *   Hosts the ADK `Runner` and `SessionService`.
+    *   Initializes and manages MCPToolsets for external services.
+    *   Defines and orchestrates the ADK agents.
+3.  **Root Agent (`mcp_streaming_assistant`):**
+    *   An `LlmAgent` (Gemini Flash Multimodal).
+    *   Receives multimodal input from the client.
+    *   Performs initial analysis and decides to either:
+        *   Use one of its directly available MCP tools (via `MCPToolset`).
+        *   Delegate to the `TaskExecutionAgentTool`.
+4.  **TaskExecutionAgent:**
+    *   An `LlmAgent` (Gemini Flash).
+    *   Wrapped as an `AgentTool` and made available to the Root Agent.
+    *   Receives complex goals (e.g., "I want to make X, what do I have, what am I missing?") and a list of visually identified items from the Root Agent.
+    *   Its instructions guide it to use tools (like Cocktail or Maps, invoked through the Root Agent's context) and synthesize a comprehensive response.
+5.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
 
-## Project Structure
+**(Optional: Embed your architecture diagram here if you have one)**
+![Architecture Diagram](/assets/flowchart.jpg)
 
-```text
-your_streaming_project_folder/
-├── main.py                  # FastAPI app, WebSocket logic, MCP tool lifespan
-├── agent_config.py          # Agent definition and MCP tool patching
-├── mcp_server/
-│   ├── cocktail.py          # Local Cocktail MCP server
-│   └── weather_server.py     # Local Weather MCP server
-├── static/                  # Frontend files
-│   ├── index.html           # Main HTML page for client
-│   └── client.js            # (Example) Client-side JavaScript
-│   └── style.css            # (Example) CSS
-├── .env                     # Environment variables
-├── pyproject.toml           # Project dependencies (e.g., for poetry or uv)
-├── requirements.txt         # (Alternative) Project dependencies (for pip)
-├── README.md                # This file
-└── Dockerfile               # (Optional) For containerization```
+## Tech Stack
 
-## Prerequisites
+*   **AI Framework:** Google Agent Development Kit (ADK) for Python
+*   **LLM:** Google Gemini (Flash for streaming/multimodal, Pro for some agent logic during development)
+*   **Backend:** Python, FastAPI, Uvicorn
+*   **Frontend:** HTML, CSS, JavaScript (with Vanta.js for background animation)
+*   **Real-time Communication:** WebSockets
+*   **External Tools:** MCP (Model Context Protocol) for CocktailDB, Weather, Google Maps
+*   **Deployment:** Google Cloud Run, Docker
+*   **Dependency Management/Runner (Local):** `uv`
 
-*   **Python 3.9+**
-*   **`uv` (recommended)** or `pip` for package management.
-    *   Install `uv`: [https://docs.astral.sh/uv/getting-started/installation/](https://docs.astral.sh/uv/getting-started/installation/)
-*   **Google Cloud Project & Gemini API Access:**
-    *   A Google Cloud Project with the Vertex AI API enabled if using Vertex AI models.
-    *   Or, a Google AI Studio API key if using `generative-language.googleapis.com`.
-*   **(Optional) Node.js & npx:** If you intend for ADK to manage the Airbnb MCP server locally via `StdioServerParameters`. Otherwise, the Airbnb server must be run as a separate process.
+## Setup & Installation
 
-## Setup and Running Locally
+### Prerequisites
 
-### 1. Clone the Repository (or set up your project)
+*   Python 3.13
+*   `uv` (recommended for faster virtual environment and package management: `pip install uv`)
+*   Node.js and `npx` (if you intend to run the Google Maps MCP server locally via ADK's StdioServerParameters).
+*   Access to Google Cloud Platform project with:
+    *   Vertex AI API enabled.
+    *   Secret Manager API enabled (if using it for API keys).
+*   Google Cloud CLI (`gcloud`) configured and authenticated.
+*   A `.env` file configured with your Google Cloud Project ID, location, and potentially API keys (see `.env.example`).
 
-```bash
-# If you have this in a git repository:
-# git clone <your-repo-url>
-# cd your_streaming_project_folder
-```
-
-### 2. Configure Environment Variables
-
-Create a `.env` file in the root of the `your_streaming_project_folder/` directory. Populate it based on your chosen backend (Google AI Studio or Vertex AI):
-
-```dotenv
-# --- Option 1: Google AI Studio API Key ---
-# GOOGLE_GENAI_USE_VERTEXAI=0 # Ensure this is 0 or commented out if using API key
-# GOOGLE_API_KEY="YOUR_GOOGLE_API_KEY"
-
-# --- Option 2: Vertex AI ---
-GOOGLE_GENAI_USE_VERTEXAI=1
-GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
-GOOGLE_CLOUD_LOCATION="your-gcp-region" # e.g., us-central1
-
-# --- Optional: For Audio Streaming with some clients/environments ---
-# export SSL_CERT_FILE=$(python -m certifi) # If you encounter SSL issues with audio
-```
-*Replace placeholders with your actual values.*
-
-### 3. Install Dependencies
-
-It's recommended to use a virtual environment.
-
-**Using `uv` (with `pyproject.toml` or `requirements.txt`):**
+### Clone Repository
 
 ```bash
-# Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate # On macOS/Linux
-# .venv\Scripts\activate # On Windows
-
-# Install dependencies
-# If you have pyproject.toml with dependencies listed:
-uv pip install -r requirements.txt # or create requirements.txt and use this
-# Example requirements.txt:
-# fastapi
-# uvicorn[standard]
-# google-adk
-# pydantic
-# python-dotenv
-# httpx # Often a dependency for API clients, good to have```
-
-### 4. Ensure MCP Server Scripts are Executable
-
-The `mcp_server/cocktail.py` and `mcp_server/weather_server.py` scripts will be run as subprocesses. Ensure they have execute permissions if necessary and that their Python shebangs (e.g., `#!/usr/bin/env python`) are correct or that they are invoked with `python ...` as configured in `StdioServerParameters`.
-
-### 5. Run the Application
-
-```bash
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+git clone [https://github.com/surfiniaburger/galactic-streamhub]
+cd [galactic-streamhub]
 ```
-The application should now be accessible at `http://127.0.0.1:8000` (or your local IP if accessing from another device on the network).
 
-## Example Usage
+### Environment Configuration
 
-Open `http://127.0.0.1:8000` in your browser. You will need a client-side implementation (`static/index.html` and `static/client.js`) that connects to the WebSocket endpoint: `ws://127.0.0.1:8000/ws/{some_session_id}?is_audio=<true|false>`.
+1.  **Create a virtual environment (using `uv`):**
+    ```bash
+    uv venv
+    source .venv/bin/activate  # On macOS/Linux
+    # .venv\Scripts\activate.bat # On Windows CMD
+    # .venv\Scripts\Activate.ps1 # On Windows PowerShell
+    ```
 
-Once connected, you can send messages like:
+2.  **Install dependencies:**
+    ```bash
+    uv sync
+    ```
 
-*   `"What's the recipe for a Negroni?"`
-*   `"Tell me the weather in Paris."`
-*   `"I need a random cocktail."`
-*   *(If Airbnb tools are configured and working)* `"Find an Airbnb in Tokyo for 2 people next month."`
+3.  **Set up your `.env` file:**
+    Copy `.env.example` to `.env` and fill in your details:
+    ```env
+    # For Vertex AI
+    GOOGLE_GENAI_USE_VERTEXAI=TRUE
+    GOOGLE_CLOUD_PROJECT="your-gcp-project-id"
+    GOOGLE_CLOUD_LOCATION="us-central1" # Or your preferred region
 
-The agent will use the loaded MCP tools to respond, and the responses will be streamed back to the client.
+    # For Google Maps API Key via Secret Manager (optional, used by main.py)
+    # GOOGLE_MAPS_API_KEY_SECRET_NAME="your-secret-name-for-maps-key"
 
-## Key Files
+    # If NOT using Secret Manager, and your Maps MCP server expects GOOGLE_MAPS_API_KEY directly:
+    # GOOGLE_MAPS_API_KEY="your-actual-maps-api-key"
+    ```
+    *Note: The `main.py` is configured to fetch the Maps API key from Secret Manager. If you provide it directly as `GOOGLE_MAPS_API_KEY`, you'll need to adjust `main.py` or ensure the Maps MCP server consumes this variable.*
 
-*   **`main.py`:**
-    *   Contains the FastAPI application setup.
-    *   Manages the application lifecycle (startup/shutdown) for loading and closing MCP tool connections.
-    *   Defines the WebSocket endpoint (`/ws/{session_id}`) for streaming communication.
-    *   Initializes and runs the ADK agent session for each connected client.
-*   **`agent_config.py`:**
-    *   Defines the `ROOT_AGENT_INSTRUCTION_STREAMING` for the ADK agent.
-    *   Contains `create_streaming_agent_with_mcp_tools()` which:
-        *   Instantiates the `LlmAgent`.
-        *   **Crucially, patches `MCPTool` instances** by adding a `.func` attribute pointing to their `.run_async` method. This is a workaround for the ADK's streaming tool execution path expecting this attribute.
-*   **`mcp_server/` directory:**
-    *   `cocktail.py`: A Python script that acts as an MCP server, exposing cocktail-related tools.
-    *   `weather_server.py`: A Python script that acts as an MCP server, exposing weather-related tools.
-*   **`static/` directory:**
-    *   Intended for your HTML, JavaScript, and CSS files to build the user interface that interacts with the WebSocket.
+## Running the Application Locally
+
+1.  **Ensure MCP Servers are Ready:**
+    *   The `main.py` application will attempt to start the Weather and Cocktail MCP servers using `StdioServerParameters`. Ensure `mcp_server/weather_server.py` and `mcp_server/cocktail.py` are executable and their dependencies are met.
+    *   The Google Maps MCP server (if configured in `main.py`) will also be started by `StdioServerParameters` (requires `npx`).
+
+2.  **Start the FastAPI Application:**
+    Navigate to the project root directory (where `main.py` is located) in your terminal and run:
+    ```bash
+    uv run uvicorn main:app --reload
+    ```
+    The application will typically be available at `http://127.0.0.1:8000`.
+
+3.  **Access the Web Interface:**
+    Open your browser and go to `http://127.0.0.1:8000`.
+
+## Running MCP Servers
+
+This application is configured to start the Weather, Cocktail, and (if API key is available) Google Maps MCP servers as subprocesses using ADK's `StdioServerParameters`.
+
+*   **Weather Server:** `mcp_server/weather_server.py`
+*   **Cocktail Server:** `mcp_server/cocktail.py`
+*   **Google Maps Server:** Uses `npx -y @modelcontextprotocol/server-google-maps` (requires Node.js/npx and a `GOOGLE_MAPS_API_KEY` environment variable available to it, which `main.py` attempts to provide from Secret Manager).
+
+If you encounter issues with these starting automatically, you may need to run them manually in separate terminals before starting `main.py` and adjust `main.py` to connect to them as existing services if necessary.
 
 ## Deployment (Example: Google Cloud Run)
 
 To deploy this application to Google Cloud Run:
 
-1.  **Create a `Dockerfile`:**
+1.  **Create a `Dockerfile` (if not already present):**
     ```dockerfile
     # Use an official Python runtime as a parent image
     FROM python:3.11-slim
@@ -177,79 +172,123 @@ To deploy this application to Google Cloud Run:
     # Set the working directory in the container
     WORKDIR /app
 
+    # Install uv first for faster dependency installation
+    RUN pip install uv
+
     # Copy the requirements file into the container at /app
     COPY requirements.txt .
 
-    # Install any needed packages specified in requirements.txt
-    # Using uv for faster installs
-    RUN pip install uv && uv pip install --system --no-cache-dir -r requirements.txt
+    # Install any needed packages specified in requirements.txt using uv
+    RUN uv pip install --system --no-cache-dir -r requirements.txt
 
     # Copy the rest of the application code into the container at /app
     COPY . .
 
-    # Make port 8000 available to the world outside this container
-    EXPOSE 8000
+    # Make port 8000 (or the port Uvicorn runs on) available
+    # Cloud Run will automatically use the PORT environment variable.
+    # Uvicorn by default runs on 8000 if PORT is not set.
+    # Let's ensure Uvicorn uses the PORT env var provided by Cloud Run.
+    # EXPOSE 8080 # Or whatever PORT Cloud Run provides. This line is actually not strictly needed for Cloud Run.
 
-    # Define environment variable
-    ENV GOOGLE_GENAI_USE_VERTEXAI=${GOOGLE_GENAI_USE_VERTEXAI}
-    ENV GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT}
-    ENV GOOGLE_CLOUD_LOCATION=${GOOGLE_CLOUD_LOCATION}
-    ENV GOOGLE_API_KEY=${GOOGLE_API_KEY}
-    # Add other environment variables needed by your app
-
-    # Run uvicorn when the container launches
-    CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Command to run the application using Uvicorn, listening on the port specified by Cloud Run's PORT env var.
+    CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "${PORT:-8080}"]
     ```
-2.  **Build and Push the Container:**
-    Use Google Cloud Build and Artifact Registry.
+
+2.  **Set Environment Variables for Deployment:**
+    In your Cloud Shell or local terminal (with `gcloud` CLI configured):
     ```bash
-    export PROJECT_ID="your-gcp-project-id"
-    export SERVICE_NAME="adk-streaming-mcp-agent"
-    export REGION="your-gcp-region" # e.g., us-central1
-
-    gcloud builds submit --tag "${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${SERVICE_NAME}" .
+    export SERVICE_NAME='galactic-streamhub' # Or your preferred service name
+    export LOCATION='us-central1'         # Or your preferred region
+    export PROJECT_ID='your-gcp-project-id' # Replace with your Project ID
     ```
+
 3.  **Deploy to Cloud Run:**
+    Ensure you are in the project's root directory (where the `Dockerfile` is).
     ```bash
-    gcloud run deploy "${SERVICE_NAME}" \
-      --image="${REGION}-docker.pkg.dev/${PROJECT_ID}/cloud-run-source-deploy/${SERVICE_NAME}" \
-      --platform="managed" \
-      --region="${REGION}" \
+    gcloud run deploy $SERVICE_NAME \
+      --source . \
+      --region $LOCATION \
+      --project $PROJECT_ID \
+      --memory 4Gi \
+      --cpu 2 \
+      --concurrency 80 \
       --allow-unauthenticated \
-      --set-env-vars="GOOGLE_GENAI_USE_VERTEXAI=1,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=${REGION}" # Set other env vars as needed
-      # If using Vertex AI, ensure the Cloud Run service account has Vertex AI User role.
-      # Consider CPU allocation, memory, concurrency settings.
+      --set-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_MAPS_API_KEY_SECRET_NAME=your-secret-name-for-maps-key" # Add other necessary env vars
+      # Ensure the service account for Cloud Run has access to Secret Manager if using it.
+    ```
+    *   Adjust `--memory`, `--cpu`, `--concurrency` as needed.
+    *   `--allow-unauthenticated` makes the service publicly accessible. Remove if you need authentication.
+    *   Use `--set-env-vars` to pass environment variables required by your application (like the Secret Manager name for the Maps API key).
+    *   The service account running the Cloud Run instance will need permissions to access Secret Manager secrets if you're using that feature.
+
+    Or simply run
+```bash
+    gcloud run deploy $SERVICE_NAME \
+      --source . \
+      --region $LOCATION \
+      --project $PROJECT_ID \
+      --memory 4G \
+      --allow-unauthenticated
     ```
 
-## Important Notes & Troubleshooting
+    On successful deployment, you will be provided a URL to the Cloud Run service
 
-*   **MCPTool Patching:** The `agent_config.py` includes a patch for `MCPTool` instances. This is because the ADK's streaming tool execution mechanism (`functions.py`) currently expects a `.func` attribute on tool objects. This patch assigns the tool's `run_async` method to `.func`.
-*   **MCP Server Availability:** Ensure your local MCP server scripts (`cocktail.py`, `weather_server.py`) are correctly implemented and can be started by the `StdioServerParameters`. If using remote MCP servers like Airbnb, ensure they are accessible.
-*   **ADK Version:** This setup has been tested with certain versions of ADK. If you encounter issues, compatibility with the ADK version might be a factor.
-*   **Firewall:** If running MCP servers on different machines or in containers, ensure firewalls are configured to allow communication.
-*   **Client-Side Implementation:** This README focuses on the backend. A functional client (`static/index.html`, `static/client.js`) is required to interact with the WebSocket endpoint. Refer to ADK streaming examples for client-side WebSocket and audio handling.
+## Project Structure
 
 ```
-
-
-audio sentiment analysis
-
-natural language module 
-
-export SERVICE_NAME='galactic-streamhub'
-export LOCATION='us-central1'
-
-# Replace with your Google Cloud Project ID
-export PROJECT_ID='silver-455021'
+.
+├── .env.example                # Example environment variables
+├── .venv/                      # Virtual environment (if created with uv venv)
+├── Dockerfile                  # For containerization
+├── README.md                   # This file
+├── agent_config.py             # Defines ADK agents and their configurations
+├── main.py                     # FastAPI application, WebSocket endpoints, ADK runner setup
+├── mcp_server/                 # Directory for local MCP server scripts
+│   ├── cocktail.py
+│   └── weather_server.py
+├── requirements.txt            # Python dependencies
+└── static/                     # Frontend assets
+    ├── css/
+    │   └── style.css
+    ├── js/
+    │   ├── app.js              # Main client-side JavaScript
+    │   ├── audio-player.js     # AudioWorklet for playback
+    │   └── audio-recorder.js   # AudioWorklet for recording
+    └── index.html              # Main HTML page
 ```
 
-In Cloud Shell, execute the following command:
+## Key Learnings & Workarounds
 
-```bash
-gcloud run deploy $SERVICE_NAME \
-  --source . \
-  --region $LOCATION \
-  --project $PROJECT_ID \
-  --memory 4G \
-  --allow-unauthenticated
+During development, especially when integrating various ADK components for a streaming multimodal experience, a few workarounds and insights were key:
+
+*   **Patching ADK Tools (`.func` attribute):**
+    *   Both `MCPTool` and `AgentTool` instances needed to be "patched" by adding a `.func` attribute that pointed to their respective `run_async` methods. This was necessary because the ADK's internal tool execution flow (in `google/adk/flows/llm_flows/functions.py`) appeared to expect this attribute for certain tool types in streaming scenarios.
+*   **`AgentTool` Argument Handling (`KeyError: 'request'`):**
+    *   The `AgentTool.run_async` method expects its input arguments from the LLM to be bundled under a single key `args['request']`.
+    *   To resolve this, the Root Agent was instructed to call the `TaskExecutionAgentTool` by passing a single argument named `request`, whose value is a JSON string containing the actual parameters (`user_goal`, `seen_items`). The `TaskExecutionAgent` was then updated to parse this JSON string.
+*   **Secure WebSockets (`wss://`):** Ensured client-side JavaScript uses `wss://` when the application is deployed over HTTPS to prevent mixed content errors.
+*   **Model Selection for Stability:** Initially used `gemini-2.5-pro-preview-05-06` for the `TaskExecutionAgent`, but switched to `gemini-2.0-flash` (like the Root Agent) to resolve a `UserWarning: UNEXPECTED_TOOL_CALL is not a valid FinishReason` and ensure more stable tool-calling behavior within the hackathon timeframe.
+
+## Future Enhancements
+
+*   More sophisticated visual understanding (e.g., fine-grained object attribute recognition).
+*   Enhanced error handling and feedback in the UI.
+*   Persistent session storage for longer-term memory.
+*   Integration of more diverse tools and agents.
+*   Refined Vanta.js background with more dynamic elements (e.g., subtle nebulae).
+
+## Contributing
+
+This project was developed for the ADK Hackathon. While contributions are not actively sought at this moment, feel free to fork the repository, explore, and adapt the concepts for your own projects! If you find bugs or have significant improvement suggestions related to the ADK usage patterns demonstrated, feel free to raise an issue on this GitHub repo or (if applicable) on the official `google/adk-python` repository.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
+
+## Acknowledgements
+
+*   The Google Agent Development Kit team for providing the framework.
+*   The FastAPI and Uvicorn communities.
+*   Vanta.js for the cool animated background.
+*   Participants and organizers of the #adkhackathon.
 ```
