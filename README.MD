@@ -7,7 +7,9 @@
 Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! This project showcases a sophisticated multi-agent AI system built using Google's Agent Development Kit (ADK). AVA can interact via text, voice, and live video, understand complex user goals, perceive the user's environment, and orchestrate tasks using specialized tools and delegated agents.
 
 **[https://galatic-streamhub-140457946058.us-central1.run.app/]** 
+
 **[https://devpost.com/software/galactic-streamhub]**
+
 **[https://medium.com/@James_Masciano/ava-building-a-glimpse-of-i-o-2025s-agentic-multimodal-future-with-google-s-adk-for-bddbaac17d3c]** 
 
 
@@ -37,12 +39,17 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
 *   **Multimodal Interaction:** Communicate with AVA via text, voice, and live video stream.
 *   **Visual Understanding:** AVA can analyze objects and elements from your live webcam feed.
 *   **Multi-Agent System:**
-    *   A **Root Agent** (multimodal) acts as the primary interface and orchestrator.
-    *   A specialized **TaskExecutionAgent** handles complex, multi-step tasks requiring reasoning based on visual context and tool usage.
+    *   A **Root Agent** (multimodal Gemini Flash) acts as the primary interface.
+    *   A **ProactiveContextOrchestratorAgent** (custom `BaseAgent`) manages the core logic for proactive and reactive assistance. It delegates to:
+        *   **EnvironmentalMonitorAgent** (`LlmAgent`): Analyzes visual context and user hints to identify proactive opportunities.
+        *   **ContextualPrecomputationAgent** (`LlmAgent`): If a proactive opportunity is identified, this agent formulates suggestions and pre-fetches relevant information using tools.
+        *   **ReactiveTaskDelegatorAgent** (`LlmAgent`): Handles explicit user tasks or executes actions based on accepted proactive suggestions.
+*   **Proactive Assistance:** AVA can anticipate user needs based on visual context and general queries, offering timely suggestions.
 *   **Tool Integration (MCP):** Leverages Model Context Protocol (MCP) tools for:
     *   Cocktail recipes
     *   Weather information
-    *   Google Maps functionalities (geocoding, place search)
+    *   Google Maps functionalities (geocoding, place search).
+*   **Agent as a Tool:** A dedicated **GoogleSearchAgent** (wrapped as an `AgentTool`) is available to other agents for general information retrieval.
 *   **Real-time Streaming:** Bidirectional streaming of audio and text using WebSockets.
 *   **Dynamic UI:** A futuristic, dark-themed web interface with 3D animated elements and a space-themed background.
 
@@ -61,12 +68,13 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   Receives multimodal input from the client.
     *   Performs initial analysis and decides to either:
         *   Use one of its directly available MCP tools (via `MCPToolset`).
-        *   Delegate to the `TaskExecutionAgentTool`.
-4.  **TaskExecutionAgent:**
-    *   An `LlmAgent` (Gemini Flash).
-    *   Wrapped as an `AgentTool` and made available to the Root Agent.
-    *   Receives complex goals (e.g., "I want to make X, what do I have, what am I missing?") and a list of visually identified items from the Root Agent.
-    *   Its instructions guide it to use tools (like Cocktail or Maps, invoked through the Root Agent's context) and synthesize a comprehensive response.
+        *   Delegate to the `ProactiveContextOrchestrator` tool (which wraps the `ProactiveContextOrchestratorAgent`).
+4.  **ProactiveContextOrchestratorAgent & its Sub-Agents:**
+    *   This custom agent orchestrates the proactive/reactive flow.
+    *   `EnvironmentalMonitorAgent`: Identifies contextual keywords from visual input and user hints.
+    *   `ContextualPrecomputationAgent`: If a proactive context is identified, this agent formulates a suggestion and can use tools (including the `GoogleSearchAgentTool` or MCP tools like CocktailDB) to pre-fetch data.
+    *   `ReactiveTaskDelegatorAgent`: Handles direct user requests or tasks following an accepted proactive suggestion. It can use MCP tools or the `GoogleSearchAgentTool` as needed.
+5.  **GoogleSearchAgentTool:** An `LlmAgent` specifically for performing Google searches, made available as a tool to other agents.
 5.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
 
 
@@ -241,10 +249,13 @@ To deploy this application to Google Cloud Run:
 ├── .venv/                      # Virtual environment (if created with uv venv)
 ├── Dockerfile                  # For containerization
 ├── README.md                   # This file
-├── agent_config.py             # Defines ADK agents and their configurations
+├── agent_config.py             # Defines ADK agents, tools, and their configurations
+├── proactive_agents.py         # Defines the ProactiveContextOrchestratorAgent and its sub-agents
+├── google_search_agent/        # Directory for the Google Search agent
+│   └── agent.py
 ├── main.py                     # FastAPI application, WebSocket endpoints, ADK runner setup
 ├── mcp_server/                 # Directory for local MCP server scripts
-│   ├── cocktail.py
+│   ├── cocktail.py             # MCP server for cocktail recipes
 │   └── weather_server.py
 ├── requirements.txt            # Python dependencies
 └── static/                     # Frontend assets
@@ -264,14 +275,15 @@ During development, especially when integrating various ADK components for a str
 *   **Patching ADK Tools (`.func` attribute):**
     *   Both `MCPTool` and `AgentTool` instances needed to be "patched" by adding a `.func` attribute that pointed to their respective `run_async` methods. This was necessary because the ADK's internal tool execution flow (in `google/adk/flows/llm_flows/functions.py`) appeared to expect this attribute for certain tool types in streaming scenarios.
 *   **`AgentTool` Argument Handling (`KeyError: 'request'`):**
-    *   The `AgentTool.run_async` method expects its input arguments from the LLM to be bundled under a single key `args['request']`.
-    *   To resolve this, the Root Agent was instructed to call the `TaskExecutionAgentTool` by passing a single argument named `request`, whose value is a JSON string containing the actual parameters (`user_goal`, `seen_items`). The `TaskExecutionAgent` was then updated to parse this JSON string.
+    *   The `AgentTool.run_async` method (when wrapping an agent like `ProactiveContextOrchestratorAgent`) expects its input arguments from the LLM to be bundled under a single key `args['request']`.
+    *   To resolve this, the Root Agent was instructed to call the `ProactiveContextOrchestrator` tool by passing a single argument named `request`, whose value is a JSON string containing the actual parameters (`user_goal`, `seen_items`). The orchestrator then accesses these from session state, which the Root Agent populates.
 *   **Secure WebSockets (`wss://`):** Ensured client-side JavaScript uses `wss://` when the application is deployed over HTTPS to prevent mixed content errors.
-*   **Model Selection for Stability:** Initially used `gemini-2.5-pro-preview-05-06` for the `TaskExecutionAgent`, but switched to `gemini-2.0-flash` (like the Root Agent) to resolve a `UserWarning: UNEXPECTED_TOOL_CALL is not a valid FinishReason` and ensure more stable tool-calling behavior within the hackathon timeframe.
+*   **Model Selection for Stability & Capability:** Using `gemini-2.0-flash` for most agents for speed and cost-effectiveness, while ensuring the `EnvironmentalMonitorAgent` uses a multimodal model if it's directly processing image data (though current flow has Root Agent do primary visual analysis).
 
 ## Future Enhancements
 
 *   More sophisticated visual understanding (e.g., fine-grained object attribute recognition).
+*   More robust proactive trigger logic (e.g., using confidence scores or a dedicated decision-making agent).
 *   Enhanced error handling and feedback in the UI.
 *   Persistent session storage for longer-term memory.
 *   Integration of more diverse tools and agents.
@@ -291,4 +303,3 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 *   The FastAPI and Uvicorn communities.
 *   Vanta.js for the cool animated background.
 *   Participants and organizers of the #adkhackathon.
-
