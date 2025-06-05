@@ -1,13 +1,14 @@
 /* style.css */
 :root {
-  --primary-bg: #0a0f1f; /* Deep space blue/black */
-  --secondary-bg: rgba(20, 26, 48, 0.65); /* Semi-transparent for panels */
-  --tertiary-bg: rgba(30, 38, 68, 0.85); /* Slightly more opaque for focused elements */
-  --accent-color: #00f2ff; /* Cyber cyan */
+  --primary-bg: #0a0f1f;
+  --secondary-bg: rgba(20, 26, 48, 0.75); /* Slightly increased opacity for better readability on panels */
+  --tertiary-bg: rgba(30, 38, 68, 0.85);
+  --accent-color: #00f2ff;
   --accent-hover: #00c0cc;
   --accent-active: #00a0b3;
   --text-color: #e0e0e0;
   --text-muted: #a0a0a0;
+  --text-highlight: #ffffff; /* For important text elements */
   --border-color: #2a304f;
   --glow-color: rgba(0, 242, 255, 0.5);
   --glow-color-intense: rgba(0, 242, 255, 0.8);
@@ -16,10 +17,14 @@
   --font-primary: 'Orbitron', sans-serif;
   --font-secondary: 'Roboto', sans-serif;
 
-  --button-depth: 4px; /* Depth for 3D buttons */
+  --button-depth: 4px;
   --button-bg: var(--accent-color);
   --button-text-color: var(--primary-bg);
   --button-shadow-color: #008c99;
+
+  --header-height: 60px;
+  --mobile-padding: 1rem;
+  --desktop-padding: 1.5rem;
 }
 
 *, *::before, *::after {
@@ -27,141 +32,131 @@
 }
 
 body.dark-theme {
-  background-color: var(--primary-bg); /* Fallback if 3D bg doesn't load */
+  background-color: var(--primary-bg);
   color: var(--text-color);
   font-family: var(--font-secondary);
   margin: 0;
   padding: 0;
   line-height: 1.6;
   overflow-x: hidden;
-  position: relative; /* For stacking context */
+  position: relative;
 }
 
-#threed-background {
+#vanta-fog-background, #threed-background {
   position: fixed;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: -1; /* Behind all content */
-  /* Vanta.js will control this, or use a static fallback */
-  background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+  z-index: -2; /* Fog layer even further back */
+}
+
+#threed-background { /* This is for DOTS */
+  z-index: -1; /* Dots layer above fog, but behind content */
 }
 
 #app-container {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  position: relative; /* Ensure it's above the #threed-background */
+  position: relative;
   z-index: 1;
 }
 
+/* --- Header Enhancements --- */
 .app-header {
-  background-color: rgba(10, 15, 31, 0.7); /* Darker, more transparent header */
+  background-color: rgba(10, 15, 31, 0.7);
   backdrop-filter: blur(12px) saturate(150%);
   -webkit-backdrop-filter: blur(12px) saturate(150%);
-  padding: 1rem 1.5rem;
-  text-align: center;
+  padding: 0 var(--mobile-padding);
+  height: var(--header-height);
   border-bottom: 1px solid var(--border-color);
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
   position: sticky;
   top: 0;
-  z-index: 100; /* Keep header on top */
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* Center the .app-header-content */
+}
+
+.app-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  max-width: 1800px; /* Max width for header content itself */
 }
 
 .app-header h1 {
   font-family: var(--font-primary);
   color: var(--accent-color);
   margin: 0;
-  font-size: clamp(1.5rem, 4vw, 2.2rem); /* Responsive font size */
-  letter-spacing: 3px;
+  font-size: clamp(1.2rem, 3.5vw, 1.8rem);
+  letter-spacing: 2px;
   text-shadow: 0 0 8px var(--glow-color), 0 0 12px var(--glow-color);
   animation: pulse-glow 3s infinite alternate;
+  white-space: nowrap;
+  flex-shrink: 0; /* Prevent title from shrinking too much */
+}
+
+.app-header nav .header-nav-button {
+  color: var(--accent-color);
+  text-decoration: none;
+  font-family: var(--font-primary);
+  font-size: clamp(0.8rem, 2.5vw, 0.9rem);
+  padding: 8px 15px;
+  border: 1px solid var(--accent-color);
+  border-radius: 5px;
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+  margin-left: 1rem;
+  background-color: transparent;
+  box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
+  white-space: nowrap;
+}
+
+.app-header nav .header-nav-button:hover,
+.app-header nav .header-nav-button:focus {
+  background-color: var(--accent-color);
+  color: var(--primary-bg);
+  text-shadow: none;
+  box-shadow: 0 0 10px var(--glow-color-intense);
+  outline: 2px solid var(--accent-hover); /* Focus outline */
+  outline-offset: 2px;
+}
+.app-header nav .header-nav-button:active {
+  background-color: var(--accent-active);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.3);
 }
 
 @keyframes pulse-glow {
-  from { text-shadow: 0 0 8px var(--glow-color), 0 0 12px var(--glow-color); }
-  to { text-shadow: 0 0 12px var(--glow-color-intense), 0 0 20px var(--glow-color-intense); }
+  from { text-shadow: 0 0 6px var(--glow-color), 0 0 10px var(--glow-color); }
+  to { text-shadow: 0 0 10px var(--glow-color-intense), 0 0 18px var(--glow-color-intense); }
 }
 
 .app-main {
   flex-grow: 1;
-  padding: 1rem;
+  padding: var(--mobile-padding);
   display: grid;
   gap: 1.5rem;
-  grid-template-columns: 1fr; /* Single column for mobile */
+  grid-template-columns: 1fr;
+  max-width: 1800px; /* Optional: limit overall main content width */
+  width: 100%; /* Ensure it takes available width */
+  margin: 0 auto;   /* Optional: center main content */
 }
-
-/* Tablet and smaller desktop layouts */
-@media (min-width: 768px) {
-  .app-main {
-      padding: 1.5rem;
-      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  }
-  #media-display-panel {
-       /* Allow media panel to span if it's the widest */
-      grid-column: 1 / -1; /* Default to full width */
-  }
-  #stream-controls-panel, #chat-panel {
-      max-height: 80vh; /* Prevent excessive height */
-  }
-}
-
-/* Larger desktop layout */
-@media (min-width: 1024px) {
-  .app-main {
-      padding: 2rem;
-      grid-template-columns: 1fr 2fr; /* Sidebar layout */
-       /* grid-template-rows: auto 1fr;  Allow dynamic row sizing */
-  }
-  #stream-controls-panel {
-      grid-column: 1 / 2;
-      grid-row: 1 / 2; /* First item in first row */
-  }
-  #media-display-panel {
-      grid-column: 2 / 3; /* Main content area */
-      grid-row: 1 / 2;    /* Alongside controls */
-  }
-  #chat-panel {
-      grid-column: 1 / -1; /* Span full width below others */
-      grid-row: 2 / 3;
-      max-height: 500px; /* Or adjust as needed */
-      display: flex;
-      flex-direction: column;
-  }
-}
-@media (min-width: 1400px) {
-  .app-main {
-      grid-template-columns: 350px 1fr 350px; /* Three columns: controls, media, chat */
-      grid-template-rows: 1fr; /* Single row */
-  }
-  #stream-controls-panel {
-      grid-column: 1 / 2;
-      grid-row: 1 / 2;
-  }
-  #media-display-panel {
-      grid-column: 2 / 3;
-      grid-row: 1 / 2;
-  }
-  #chat-panel {
-      grid-column: 3 / 4;
-      grid-row: 1 / 2;
-      max-height: calc(100vh - 120px); /* Example: full viewport height minus header/footer */
-  }
-}
-
 
 .panel {
   background-color: var(--secondary-bg);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  padding: 1.5rem;
-  box-shadow: 0 0 25px rgba(0, 0, 0, 0.3), 
-              inset 0 1px 0 rgba(255, 255, 255, 0.05),
-              inset 0 0 15px rgba(0, 242, 255, 0.1);
+  padding: 1.2rem 1.5rem;
+  box-shadow: 0 2px 15px rgba(0, 0, 0, 0.3),
+              inset 0 1px 0 rgba(255, 255, 255, 0.03),
+              inset 0 0 10px rgba(0, 242, 255, 0.08);
   backdrop-filter: blur(10px) saturate(120%);
   -webkit-backdrop-filter: blur(10px) saturate(120%);
   transition: transform 0.3s ease, box-shadow 0.3s ease;
+  overflow: hidden;
 }
 .panel:hover {
   transform: translateY(-5px);
@@ -174,410 +169,597 @@ body.dark-theme {
   font-family: var(--font-primary);
   color: var(--accent-color);
   margin-top: 0;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.2rem;
   border-bottom: 1px solid var(--border-color);
-  padding-bottom: 0.75rem;
-  font-size: 1.4rem;
+  padding-bottom: 0.6rem;
+  font-size: clamp(1.2rem, 3vw, 1.4rem);
   text-shadow: 0 0 5px var(--glow-color);
 }
 
-.button-group {
-  display: flex;
-  flex-direction: column; /* Stack buttons vertically */
-  gap: 1.5rem; /* Increased gap for better touch targets and visual separation */
+@media (max-width: 480px) {
+  .app-header {
+      padding: 0 0.8rem; /* Slightly less padding for very small */
+  }
+  .app-header h1 {
+      font-size: 1rem;
+      letter-spacing: 1px;
+  }
+  .app-header nav .header-nav-button {
+      padding: 6px 10px;
+      font-size: 0.75rem;
+      margin-left: 0.5rem;
+  }
+  .app-main {
+    padding: 0.8rem;
+    gap: 1rem;
+  }
+  .panel {
+      padding: 1rem;
+  }
+   #messageForm input[type="text"] {
+      font-size: 0.9rem;
+  }
+  .toggle-3d .button-top-face,
+  #sendButton.send-button-3d .button-top-face {
+      font-size: 0.8rem;
+  }
 }
 
-/* --- 3D Button Styling --- */
+@media (min-width: 768px) {
+  .app-main {
+      padding: var(--desktop-padding);
+      grid-template-columns: minmax(280px, 1fr) minmax(320px, 1.5fr); /* Adjusted for better balance */
+  }
+  #stream-controls-panel {
+    grid-column: 1 / 2;
+    max-height: calc(100vh - var(--header-height) - (2 * var(--desktop-padding)) - 2rem);
+  }
+  #chat-panel {
+    grid-column: 2 / 3;
+    max-height: calc(100vh - var(--header-height) - (2 * var(--desktop-padding)) - 2rem);
+  }
+  #media-display-panel {
+      grid-column: 1 / -1; /* Full width for video below controls/chat or as configured by later breakpoints */
+      order: 3; /* Place video panel last in source order for this layout if it's full width */
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-header { padding: 0 var(--desktop-padding); }
+  .app-main {
+      padding: var(--desktop-padding) 2rem;
+      grid-template-columns: minmax(300px, 350px) 1fr; /* Sidebar (Controls) | Main Content (Video+Chat) */
+      grid-template-rows: auto 1fr; /* Auto for video, 1fr for chat to fill */
+  }
+   #stream-controls-panel {
+      grid-column: 1 / 2;
+      grid-row: 1 / 3; /* Span both rows if video and chat are in second column */
+  }
+  #media-display-panel {
+      grid-column: 2 / 3;
+      grid-row: 1 / 2;
+      order: initial; /* Reset order */
+  }
+  #chat-panel {
+      grid-column: 2 / 3;
+      grid-row: 2 / 3;
+      max-height: none; /* Allow chat to fill remaining space */
+  }
+  #media-display-panel.hidden-animated + #chat-panel { /* If video hidden, chat takes its place */
+      grid-row: 1 / 3;
+  }
+}
+
+@media (min-width: 1400px) {
+  .app-main {
+      padding: var(--desktop-padding) 2.5rem;
+      grid-template-columns: 350px 1fr 350px;
+      grid-template-rows: 1fr;
+      align-items: flex-start;
+  }
+  #stream-controls-panel {
+      grid-column: 1 / 2;
+      grid-row: 1 / 2;
+  }
+  #media-display-panel {
+      grid-column: 2 / 3;
+      grid-row: 1 / 2;
+  }
+  #chat-panel {
+      grid-column: 3 / 4;
+      grid-row: 1 / 2;
+      max-height: calc(100vh - var(--header-height) - (2 * var(--desktop-padding)) - 2rem); /* Re-apply max-height */
+  }
+}
+
+.button-group {
+display: flex;
+flex-direction: column;
+gap: 1.5rem;
+}
+
 .toggle-3d, .send-button-3d {
-  position: relative;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  outline: none;
-  padding: 0; /* Padding will be on the top face */
-  transform-style: preserve-3d;
-  transition: transform 0.15s cubic-bezier(0, 0, 0.58, 1);
-  min-width: 160px;
-  height: calc(40px + var(--button-depth)); /* Height of top face + depth */
-  align-self: flex-start; /* Align buttons to the start of flex container if in a row */
+position: relative;
+border: none;
+background: transparent;
+cursor: pointer;
+outline: none;
+padding: 0;
+transform-style: preserve-3d;
+transition: transform 0.15s cubic-bezier(0, 0, 0.58, 1);
+min-height: calc(40px + var(--button-depth));
+width: 100%; /* Full width by default for mobile */
+max-width: 280px; /* Max width for mobile */
+align-self: center; /* Center in column */
 }
 
 .button-top-face {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 40px; /* Height of the top surface */
-  background: var(--button-bg);
-  color: var(--button-text-color);
-  font-family: var(--font-primary);
-  font-weight: bold;
-  font-size: 0.9rem;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  transform: translateZ(var(--button-depth)); /* This is the top surface, lifted by button-depth */
-  transition: background-color 0.2s, color 0.2s, transform 0.2s, box-shadow 0.2s;
-  box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
+display: flex;
+align-items: center;
+justify-content: center;
+width: 100%;
+height: 40px;
+background: var(--button-bg);
+color: var(--button-text-color);
+font-family: var(--font-primary);
+font-weight: bold;
+font-size: 0.9rem;
+border-radius: 6px;
+border: 1px solid rgba(255, 255, 255, 0.2);
+transform: translateZ(var(--button-depth));
+transition: background-color 0.2s, color 0.2s, transform 0.2s, box-shadow 0.2s;
+box-shadow: 0 0 10px rgba(0, 242, 255, 0.3);
 }
 
 .button-front-face, .button-side-face {
-  position: absolute;
-  width: 100%;
-  height: var(--button-depth); /* Thickness of the button */
-  background: var(--button-shadow-color);
-  border-radius: 0 0 6px 6px; /* Round bottom corners */
+position: absolute;
+width: 100%;
+height: var(--button-depth);
+background: var(--button-shadow-color);
+border-radius: 0 0 6px 6px;
 }
 
 .button-front-face {
-  bottom: 0; /* Positioned at the very bottom */
-  left: 0;
-  transform: rotateX(-90deg) translateY(calc(var(--button-depth) * -0.5)) translateZ(calc(var(--button-depth) * 0.5));
-  /* Creates the front edge */
+bottom: 0;
+left: 0;
+transform: rotateX(-90deg) translateY(calc(var(--button-depth) * -0.5)) translateZ(calc(var(--button-depth) * 0.5));
 }
 
-.toggle-3d .button-side-face { /* Specific to buttons needing a visible side */
-  width: var(--button-depth); /* Thickness */
-  height: 40px; /* Match top face height */
-  top: 0;
-  right: -1px; /* Position to the side */
-  border-radius: 0 6px 6px 0;
-  transform: rotateY(90deg) translateX(calc(var(--button-depth) * 0.5)) translateZ(calc(100% - var(--button-depth) * 0.5));
-  /* Creates the right edge */
-  background: color-mix(in srgb, var(--button-shadow-color) 80%, black); /* Even darker side */
+.toggle-3d .button-side-face {
+width: var(--button-depth);
+height: 40px;
+top: 0;
+right: -1px; /* Can be 0 or -1 depending on exact look */
+border-radius: 0 6px 6px 0;
+transform: rotateY(90deg) translateX(calc(var(--button-depth) * 0.5)) translateZ(calc(100% - var(--button-depth) * 0.5 - 1px)); /* Adjust Z for perfect alignment */
+background: color-mix(in srgb, var(--button-shadow-color) 80%, black);
 }
-
 
 .toggle-3d:hover, .send-button-3d:hover {
-  transform: translateY(-2px); /* Lift button slightly */
+transform: translateY(-2px);
 }
 .toggle-3d:hover .button-top-face, .send-button-3d:hover .button-top-face {
-  background-color: var(--accent-hover);
-  box-shadow: 0 0 15px var(--glow-color-intense);
+background-color: var(--accent-hover);
+box-shadow: 0 0 15px var(--glow-color-intense);
 }
 
 .toggle-3d:active, .send-button-3d:active {
-  transform: translateY(var(--button-depth) / 2); /* Push button "down" */
+transform: translateY(calc(var(--button-depth) / 2));
 }
 .toggle-3d:active .button-top-face, .send-button-3d:active .button-top-face {
-  transform: translateZ(calc(var(--button-depth) / 2)); /* Sink top face */
-  background-color: var(--accent-active);
-  box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
+transform: translateZ(calc(var(--button-depth) / 2));
+background-color: var(--accent-active);
+box-shadow: 0 0 5px rgba(0, 242, 255, 0.2);
 }
-
 
 button:disabled .button-top-face {
-  background-color: #555 !important;
-  color: #999 !important;
-  cursor: not-allowed;
-  box-shadow: none !important;
+background-color: #555 !important;
+color: #999 !important;
+cursor: not-allowed;
+box-shadow: none !important;
 }
 button:disabled .button-front-face, button:disabled .button-side-face {
-  background: #444 !important;
+background: #444 !important;
 }
 button:disabled {
-  cursor: not-allowed;
-  transform: translateY(0) !important; /* No movement */
+cursor: not-allowed;
+transform: translateY(0) !important;
 }
 
+@media (min-width: 768px) {
+  .toggle-3d, .send-button-3d {
+      width: auto; /* Revert to auto width on larger screens */
+      min-width: 160px;
+      align-self: flex-start;
+  }
+}
 
-/* Media Display */
 #media-display {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background-color: #000; /* Solid black background for video */
-  border-radius: 8px;
-  overflow: hidden;
-  min-height: 240px; /* Minimum height for the video area */
-  border: 1px solid var(--border-color);
+display: flex;
+justify-content: center;
+align-items: center;
+background-color: #000;
+border-radius: 8px;
+overflow: hidden;
+min-height: 240px;
+border: 1px solid var(--border-color);
+position: relative;
 }
 
 #videoPreview {
-  width: 100%;
-  height: auto; /* Maintain aspect ratio */
-  max-height: 60vh; /* Limit video height on large screens */
-  display: block;
-  border-radius: 6px; /* Slight rounding if smaller than container */
+width: 100%;
+height: auto;
+max-height: 70vh; /* Can be larger if it's the main focus */
+display: block;
+border-radius: 6px;
 }
 
-/* Chat Area */
 #chat-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100%; /* Ensure it fills its grid area */
-  min-height: 300px; /* Minimum height for usability */
+display: flex;
+flex-direction: column;
+height: 100%;
+min-height: 300px;
 }
 
 #chat-container {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden; /* Prevent content from spilling */
+flex-grow: 1;
+display: flex;
+flex-direction: column;
+overflow: hidden;
 }
 
 #messages {
-  flex-grow: 1;
-  background-color: rgba(10, 15, 31, 0.8);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 10px 15px;
-  margin-bottom: 15px;
-  overflow-y: auto;
-  min-height: 150px;
-  word-break: break-word;
+flex-grow: 1;
+background-color: rgba(10, 15, 31, 0.8);
+border: 1px solid var(--border-color);
+border-radius: 6px;
+padding: 10px 15px;
+margin-bottom: 15px;
+overflow-y: auto;
+min-height: 150px;
+word-break: break-word;
+scrollbar-width: thin;
+scrollbar-color: var(--accent-color) rgba(10, 15, 31, 0.5);
 }
 
 .message {
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  border-radius: 4px;
-  line-height: 1.4;
+padding: 8px 12px;
+margin-bottom: 8px;
+border-radius: 4px;
+line-height: 1.4;
+max-width: 90%;
 }
 .message.system {
-  background-color: rgba(0, 242, 255, 0.1);
-  color: var(--accent-color);
-  font-style: italic;
-  text-align: center;
-  font-size: 0.9em;
+background-color: rgba(0, 242, 255, 0.1);
+color: var(--accent-color);
+font-style: italic;
+text-align: center;
+font-size: 0.9em;
+max-width: 100%; /* System messages can be full width */
 }
 .message.user {
-  background-color: rgba(0, 100, 120, 0.3);
-  margin-left: auto;
-  max-width: 70%;
-  text-align: right;
+background-color: rgba(0, 100, 120, 0.3);
+margin-left: auto;
+text-align: right;
 }
 .message.remote {
-  background-color: rgba(50, 60, 90, 0.4);
-  max-width: 70%;
+background-color: rgba(50, 60, 90, 0.4);
+margin-right: auto; /* Ensure remote messages align left */
 }
 
-
 #messageForm {
-  display: flex;
-  gap: 10px;
-  align-items: stretch; /* Make items same height */
+display: flex;
+gap: 10px;
+align-items: stretch;
 }
 
 #messageForm input[type="text"] {
-  flex-grow: 1;
-  padding: 10px 15px; /* Match button height */
-  background-color: var(--tertiary-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-color);
-  font-size: 1rem;
-  outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
-  height: calc(40px + var(--button-depth)); /* Match button container height */
+flex-grow: 1;
+padding: 10px 15px;
+background-color: var(--tertiary-bg);
+border: 1px solid var(--border-color);
+border-radius: 6px;
+color: var(--text-color);
+font-size: 1rem;
+outline: none;
+transition: border-color 0.2s, box-shadow 0.2s, background-color 0.2s;
+height: calc(40px + var(--button-depth));
 }
 
 #messageForm input[type="text"]:focus {
-  border-color: var(--accent-color);
-  background-color: var(--primary-bg);
-  box-shadow: 0 0 10px var(--glow-color);
+border-color: var(--accent-color);
+background-color: var(--primary-bg);
+box-shadow: 0 0 10px var(--glow-color);
 }
 
-/* Ensure send button aligns with input */
 #sendButton.send-button-3d {
-  min-width: 80px; /* Adjust as needed */
-  flex-shrink: 0; /* Prevent shrinking */
+min-width: 80px;
+flex-shrink: 0;
 }
 #sendButton.send-button-3d .button-top-face{
-  font-size: 0.9rem;
+font-size: 0.9rem;
 }
 
-
-/* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+width: 10px;
+height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: rgba(10, 15, 31, 0.5);
-  border-radius: 5px;
+background: rgba(10, 15, 31, 0.5);
+border-radius: 5px;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--accent-color);
-  border-radius: 5px;
-  border: 2px solid rgba(10, 15, 31, 0.5); /* Creates padding around thumb */
+background: var(--accent-color);
+border-radius: 5px;
+border: 2px solid rgba(10, 15, 31, 0.5);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--accent-hover);
+background: var(--accent-hover);
 }
 ::-webkit-scrollbar-corner {
-  background: transparent;
+background: transparent;
 }
 
-
-/* Accessibility */
 .visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  border: 0;
-  white-space: nowrap; /* Prevent line breaks from affecting layout */
+position: absolute;
+width: 1px;
+height: 1px;
+margin: -1px;
+padding: 0;
+overflow: hidden;
+clip: rect(0, 0, 0, 0);
+border: 0;
+white-space: nowrap;
 }
 
-/* Footer */
 .app-footer {
-  text-align: center;
-  padding: 1.5rem 1rem;
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  border-top: 1px solid var(--border-color);
-  margin-top: auto; /* Pushes footer to bottom */
-  background-color: rgba(10, 15, 31, 0.7);
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
+text-align: center;
+padding: 1.5rem 1rem;
+font-size: 0.85rem;
+color: var(--text-muted);
+border-top: 1px solid var(--border-color);
+margin-top: auto;
+background-color: rgba(10, 15, 31, 0.7);
+backdrop-filter: blur(5px);
+-webkit-backdrop-filter: blur(5px);
 }
 
-/* style.css (add this class definition) */
+/* Hidden/Animated Classes */
+.hidden {
+  display: none !important;
+}
 
-/* ... (all your existing CSS) ... */
-
-/* style.css */
-/* ... your existing styles ... */
-
-#media-display-panel {
-  /* ... your existing panel styles ... */
+#media-display-panel.hidden-animated {
+  opacity: 0;
+  transform: scale(0.95) translateY(15px);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+              transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
+              visibility 0s linear 0.3s;
+}
+#media-display-panel { /* Default state for animated panel */
   opacity: 1;
   visibility: visible;
   transform: scale(1) translateY(0);
   transition: opacity 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
               transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
-              visibility 0s linear 0s; /* Instant visibility change, no delay when becoming visible */
+              visibility 0s linear 0s;
 }
 
-#media-display-panel.hidden-animated { /* New class for animated hide */
-  opacity: 0;
-  transform: scale(0.95) translateY(15px);
-  pointer-events: none; /* Prevent interaction when hidden */
-  visibility: hidden;
-  transition: opacity 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
-              transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1),
-              visibility 0s linear 0.3s; /* Delay visibility change until after animation */
-}
-
-/* Remove the old .hidden if it was just display:none */
-/* If you still need a non-animated instant hide for other things, keep .hidden:
-.hidden { display: none !important; }
-*/
-/* ... (rest of your CSS) ... */
-
-/* style.css */
-/* ... your existing styles ... */
-
-#vanta-fog-background, #threed-background {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  z-index: -2; /* Fog layer even further back */
-}
-
-#threed-background { /* This is now for DOTS */
-  z-index: -1; /* Dots layer above fog, but behind content */
-  /* Vanta will set its own background, ensure it's transparent in JS options */
-}
-
-#app-container {
-  /* ... existing styles ... */
-  position: relative; /* Ensure this is still true */
-  z-index: 1;         /* Ensure app content is above all Vanta layers */
-}
-
-/* style.css */
+/* Loader Styles */
 .loading-spinner-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  /* Position it as needed, e.g., absolute within a panel */
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+padding: 10px 0; /* Reduced padding as it's inline now */
+}
+#controls .loading-spinner-container { /* Specific to audio loader position */
+margin-top: 10px; /* Space below audio button if it's visible */
+margin-bottom: 10px; /* Space before video button */
 }
 
 .loader-dots {
 display: inline-block;
 position: relative;
-width: 80px;
-height: 80px;
+width: 60px; /* Slightly smaller loader */
+height: 60px;
 }
 .loader-dots div {
 position: absolute;
-top: 33px;
-width: 13px;
-height: 13px;
+top: 25px; /* Adjusted for smaller size */
+width: 10px; /* Smaller dots */
+height: 10px;
 border-radius: 50%;
-background: var(--accent-color); /* Use your cyan */
+background: var(--accent-color);
 animation-timing-function: cubic-bezier(0, 1, 1, 0);
 }
 .loader-dots div:nth-child(1) {
-left: 8px;
+left: 6px; /* Adjusted */
 animation: loader-dots1 0.6s infinite;
 box-shadow: 0 0 5px var(--glow-color);
 }
 .loader-dots div:nth-child(2) {
-left: 8px;
+left: 6px; /* Adjusted */
 animation: loader-dots2 0.6s infinite;
 }
 .loader-dots div:nth-child(3) {
-left: 32px;
+left: 26px; /* Adjusted */
 animation: loader-dots2 0.6s infinite;
 box-shadow: 0 0 5px var(--glow-color);
 }
 .loader-dots div:nth-child(4) {
-left: 56px;
+left: 45px; /* Adjusted */
 animation: loader-dots3 0.6s infinite;
 }
 
 .loader-text {
-  margin-top: 10px;
-  color: var(--accent-color);
-  font-family: var(--font-secondary);
-  font-size: 0.9em;
-  text-shadow: 0 0 3px var(--glow-color);
+margin-top: 8px; /* Adjusted */
+color: var(--accent-color);
+font-family: var(--font-secondary);
+font-size: 0.85em; /* Slightly smaller */
+text-shadow: 0 0 3px var(--glow-color);
 }
-
-.hidden {
-  display: none !important;
-}
-
-/* Styling for the loader container within the button group if needed */
-#controls .loading-spinner-container {
-  margin-top: 15px; /* Add some space below the button */
-  /* Or, if you want it to feel like it replaces the button,
-     you might hide the button and show the loader in its place.
-     For now, this places it below. */
-}
-
 
 @keyframes loader-dots1 {
-0% {
-  transform: scale(0);
-}
-100% {
-  transform: scale(1);
-}
+0% { transform: scale(0); }
+100% { transform: scale(1); }
 }
 @keyframes loader-dots3 {
-0% {
-  transform: scale(1);
-}
-100% {
-  transform: scale(0);
-}
+0% { transform: scale(1); }
+100% { transform: scale(0); }
 }
 @keyframes loader-dots2 {
-0% {
-  transform: translate(0, 0);
-}
-100% {
-  transform: translate(24px, 0);
-}
+0% { transform: translate(0, 0); }
+100% { transform: translate(20px, 0); } /* Adjusted distance */
 }
 
+
+/* === User Guide Page Specific Styles === */
+/* Applied if body has class 'user-guide-page' */
+
+body.user-guide-page .app-main {
+  display: block;
+  padding: var(--mobile-padding);
+}
+@media (min-width: 768px) {
+  body.user-guide-page .app-main {
+      padding: var(--desktop-padding) 2rem;
+  }
+}
+
+.guide-content-wrapper {
+  width: 100%;
+  max-width: 900px;
+  margin: 1.5rem auto;
+  padding: clamp(1rem, 5vw, 2.5rem);
+  background-color: var(--secondary-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 5px 25px rgba(0,0,0,0.3);
+  color: var(--text-color);
+}
+
+.guide-content-wrapper h1,
+.guide-content-wrapper h2,
+.guide-content-wrapper h3 {
+  font-family: var(--font-primary);
+  color: var(--accent-color);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5rem;
+  margin-top: 2rem;
+  margin-bottom: 1rem;
+  text-shadow: 0 0 3px var(--glow-color);
+}
+.guide-content-wrapper h1 { /* Main "User Guide" title on user_guide.html */
+  text-align: center;
+  font-size: clamp(1.8rem, 5vw, 2.5rem);
+  margin-top: 0; /* No extra top margin for the primary page H1 */
+  margin-bottom: 2rem;
+  border-bottom-color: var(--accent-color);
+}
+.guide-content-wrapper h2 {
+  font-size: clamp(1.4rem, 4vw, 1.8rem);
+}
+.guide-content-wrapper h3 {
+  font-size: clamp(1.2rem, 3.5vw, 1.5rem);
+  border-bottom: none;
+}
+
+.guide-content-wrapper p,
+.guide-content-wrapper li {
+  font-family: var(--font-secondary);
+  line-height: 1.7;
+  color: var(--text-color);
+  margin-bottom: 1rem;
+}
+.guide-content-wrapper ul, .guide-content-wrapper ol {
+  padding-left: 25px;
+  margin-bottom: 1rem;
+}
+.guide-content-wrapper ul li, .guide-content-wrapper ol li { /* More specific selector */
+  margin-bottom: 0.5rem;
+}
+
+.guide-content-wrapper strong {
+  color: var(--text-highlight);
+  font-weight: 600;
+}
+.guide-content-wrapper em,
+.guide-content-wrapper strong em {
+  color: var(--accent-hover);
+  font-style: italic;
+}
+
+.guide-content-wrapper code { /* Inline code */
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  background-color: var(--tertiary-bg);
+  padding: 0.2em 0.4em;
+  font-size: 0.9em;
+  border-radius: 3px;
+  color: var(--accent-color);
+}
+.guide-content-wrapper pre { /* Wrapper for code blocks */
+  background-color: var(--primary-bg);
+  padding: 1em;
+  border-radius: 5px;
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  margin-bottom: 1rem; /* Consistent margin */
+}
+.guide-content-wrapper pre code { /* Code within pre, no extra background/padding */
+  background-color: transparent;
+  padding: 0;
+  font-size: 0.85em;
+  line-height: 1.5;
+  border: none;
+}
+
+
+.guide-content-wrapper .flowchart-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 2rem auto;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background-color: rgba(0,0,0,0.2);
+}
+
+.guide-content-wrapper .sample-queries ul {
+  list-style-type: none;
+  padding-left: 0;
+}
+.guide-content-wrapper .sample-queries li {
+  background-color: rgba(30, 38, 68, 0.5); /* Slightly different than panel bg for contrast */
+  border-left: 3px solid var(--accent-color);
+  padding: 1rem 1.2rem;
+  margin-bottom: 1rem;
+  border-radius: 0 5px 5px 0;
+}
+.guide-content-wrapper .sample-queries li p:first-child {
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: var(--text-highlight);
+}
+.guide-content-wrapper .sample-queries li code { /* For code examples inside list items */
+  display: block;
+  background-color: var(--primary-bg);
+  padding: 0.8em 1em;
+  margin-top: 0.5em;
+  font-size: 0.9em;
+  border-radius: 4px;
+  white-space: pre-wrap; /* Allow wrapping */
+  word-break: break-all; /* Break long unbroken strings */
+  color: var(--accent-color);
+  border: 1px solid var(--border-color);
+}
+
+.guide-footer { /* For the footer of the guide page content */
+  text-align: center;
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border-color);
+}
+/* The main .app-footer style will apply to the overall page footer on user_guide.html */

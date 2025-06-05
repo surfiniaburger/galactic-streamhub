@@ -522,6 +522,9 @@ async def websocket_endpoint(
 # --- Static Files & Root Endpoint ---
 app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 
+# This assumes 'assets' is a folder in the same directory as main.py
+app.mount("/assets", StaticFiles(directory="assets", html=True), name="assets")
+
 @app.get("/")
 async def root():
     """Serves the index.html from the static directory"""
