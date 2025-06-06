@@ -445,6 +445,23 @@
                             <code>I'm thinking about my next vacation.</code>
                             <p><em>(AVA's EnvironmentalMonitorAgent might pick up on "Paris" from the visual, and the ContextualPrecomputationAgent might suggest searching for flights or attractions in Paris.)</em></p>
                         </li>
+                        <li>
+                            <p>Testing Proactive Assistance with Visual Context (Textbook):</p>
+                            <p><em>(1. Start your video feed. 2. Have a textbook clearly visible to the camera. 3. Remain idle or type a general greeting like "Hello".)</em></p>
+                            <code>Hello AVA.</code>
+                            <p><em>(AVA, through its EnvironmentalMonitorAgent, might detect the textbook. The ContextualPrecomputationAgent might then offer: "I see you have a textbook there. If you tell me the subject or title, I can try to find related articles or summaries for you.")</em></p>
+                        </li>
+                        <li>
+                            <p>Testing PubMed RAG (Biomedical Query):</p>
+                            <p><em>(Ensure you have run the `pubmed_pipeline.py` script to ingest data into MongoDB.)</em></p>
+                            <code>What are some recent findings on CAR T-cell therapy for lymphoma?</code>
+                            <p><em>(AVA should delegate this to the `PubMedRAGAgent` which will query your MongoDB PubMed collection and synthesize an answer based on the abstracts it finds.)</em></p>
+                        </li>
+                        <li>
+                            <p>Testing Proactive Flow with Textbook leading to PubMed RAG:</p>
+                            <p><em>(1. Start video, show a medical textbook. 2. AVA might offer help. 3. User responds: "Yes, I'm studying immunology.")</em></p>
+                            <p><em>(AVA, through its orchestrator and potentially the `ReactiveTaskDelegatorAgent` or by re-invoking `ContextualPrecomputationAgent` with the new goal, might then use the `QueryPubMedKnowledgeBase` tool to find relevant immunology articles.)</em></p>
+                        </li>
                     </ul>
                     <p><strong>Experiment!</strong> Try different combinations of visual cues and queries to see how AVA and its team of agents respond. The system is designed to be flexible and understand context.</p>
                 </section>
