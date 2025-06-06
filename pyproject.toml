@@ -12,4 +12,9 @@ dependencies = [
     "google-cloud>=0.34.0",
     "mcp>=1.6.0",
     "uvicorn>=0.34.1",
+    "google-cloud-logging >= 3.11.3",
+    "pymongo >= 4.10.1",
+    "pandas >= 2.2.3",
+    "pyarrow >= 20.0.0",
+    "pandas-gbq>= 0.29.0"
 ]

@@ -15,6 +15,8 @@ from proactive_agents import (
 )
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
+# Import the PubMed query function directly
+from pubmed_pipeline import query_pubmed_articles, ingest_single_article_data
 
 
 MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
@@ -84,8 +86,32 @@ Core Capabilities:
         *   If the user accepts the suggestion in a follow-up turn, set `ctx.session.state['accepted_precomputed_data'] = ctx.session.state['proactive_precomputed_data_for_next_turn']` and call the tool again with the user's affirmative response as the new 'user_goal'.
         *   If no proactive suggestion, the tool will handle the task reactively, and its direct output (your final response) will be the answer.
 4.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous.
-5.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from the `ProactiveContextOrchestrator` tool, present that agent's findings clearly.
-If you are absolutely unable to help with a request, or if none of your tools (including the `ProactiveContextOrchestrator` tool) are suitable for the task, politely state that you cannot assist with that specific request.
+5.  **Delegation to `PubMedRAGAgent`**:
+    *   If the user's query is clearly biomedical or research-oriented (e.g., "find papers on...", "what's the latest on..."), delegate to the `PubMedRAGAgent` tool.
+    *   **AFTER `PubMedRAGAgent` RUNS, CHECK SESSION STATE FOR `new_article_to_ingest`**:
+        *   The `PubMedRAGAgent` might have identified a new article from the web and stored its details in `ctx.session.state['new_article_to_ingest']` if it offered to save it.
+        *   If `ctx.session.state['new_article_to_ingest']` exists AND the user's current message is an affirmative response to saving it (e.g., "yes, save the new article", "save this article", "add it to the knowledge base"), then:
+            1.  Retrieve the article details (title, abstract_text, source_url, etc.) from `ctx.session.state['new_article_to_ingest']`.
+            2.  Call the `ingest_single_article_data` tool with these details.
+            3.  Inform the user about the outcome of the ingestion (e.g., "Successfully added the new article to the knowledge base." or "Sorry, I encountered an error trying to save the article.").
+            4.  Crucially, clear the stored article details: `ctx.session.state.pop('new_article_to_ingest', None)`.
+6.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
+"""
+
+# --- Instruction for PubMedRAGAgent ---
+PUBMED_RAG_AGENT_INSTRUCTION = """
+You are an AI assistant specializing in biomedical research. Your task is to provide comprehensive answers to user questions.
+1.  First, use the 'query_pubmed_articles' tool to search your existing knowledge base of PubMed scientific abstracts.
+2.  Second, use the 'google_search_agent' tool to perform a web search for the same query to find potentially newer or supplementary information. Append "latest research" or "recent studies" to the query for the web search to focus on new findings.
+3.  Synthesize the information from both the knowledge base and the web search to provide a comprehensive answer. Clearly distinguish information sources if relevant.
+4.  If you find a highly relevant new article from the web search that is not present in the knowledge base results, include its key findings in your answer.
+    Then, ask the user if they would like to add this new article to the permanent knowledge base.
+    If you make this offer, you MUST store the new article's details (extracted title, full text/abstract, and source URL if available) into the session state under the key 'new_article_to_ingest'.
+    Phrase your offer like: "I also found a newer article titled '[Extracted Title]' from [Source URL if available] discussing [brief summary]. Would you like to add this to our knowledge base for future reference? If so, please say 'yes, save the new article'."
+5.  If multiple articles are relevant from either source, summarize the key findings.
+6.  Cite source articles (e.g., title, authors, publication year for PubMed; title and URL for web results) if possible.
+7.  If the knowledge base does not contain relevant information and the web search is also unhelpful, state that you couldn't find specific information.
 """
 
 
@@ -116,6 +142,10 @@ def create_streaming_agent_with_mcp_tools(
     # Tools to be made available to sub-agents of the orchestrator
     sub_agent_tools = list(loaded_mcp_toolsets) # Start with MCP tools
     sub_agent_tools.append(google_search_agent_tool) # Add the GoogleSearchAgentTool
+    # Add the query_pubmed_articles function directly. ADK will wrap it as a FunctionTool.
+    # The function's docstring will serve as its description to the LLM.
+    # Ensure query_pubmed_articles has a good docstring.
+    sub_agent_tools.append(query_pubmed_articles)
 
     # 2. Create instances of the new proactive sub-agents
     # These agents will be orchestrated by ProactiveContextOrchestratorAgent.
@@ -151,6 +181,16 @@ def create_streaming_agent_with_mcp_tools(
         # output_key="reactive_task_final_answer"
     )
 
+    # 2.5 Create the PubMedRAGAgent instance
+    pubmed_rag_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID, # Or GEMINI_FLASH_MODEL_ID
+        name="PubMedRAGAgent",
+        instruction=PUBMED_RAG_AGENT_INSTRUCTION,
+        description="Answers biomedical questions by searching and synthesizing information from a PubMed abstract knowledge base.",
+        tools=[query_pubmed_articles, google_search_agent_tool] # Now has both tools
+    )
+    logging.info(f"PubMedRAGAgent instance created: {pubmed_rag_agent.name}")
+
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(
         name="ProactiveContextOrchestrator",
@@ -182,6 +222,20 @@ def create_streaming_agent_with_mcp_tools(
 
     all_root_agent_tools.append(proactive_orchestrator_tool)
     logging.info(f"ProactiveContextOrchestrator wrapped as AgentTool ('{proactive_orchestrator_tool.name}') and added to Root Agent's tools.")
+
+    # 4.5 Wrap PubMedRAGAgent as a tool for the Root Agent (AVA) to delegate to
+    pubmed_rag_agent_tool = AgentTool(
+        agent=pubmed_rag_agent
+    )
+    if hasattr(pubmed_rag_agent_tool, 'run_async') and callable(getattr(pubmed_rag_agent_tool, 'run_async')):
+        pubmed_rag_agent_tool.func = pubmed_rag_agent_tool.run_async # type: ignore
+    all_root_agent_tools.append(pubmed_rag_agent_tool)
+    logging.info(f"PubMedRAGAgent wrapped as AgentTool ('{pubmed_rag_agent_tool.name}') and added to Root Agent's tools.")
+
+    # 4.6 Add the ingest_single_article_data function directly as a tool for the Root Agent
+    # The ADK will wrap it. Its docstring in pubmed_pipeline.py serves as its description.
+    all_root_agent_tools.append(ingest_single_article_data)
+    logging.info(f"Added 'ingest_single_article_data' function as a tool to Root Agent.")
 
     # --- Patch AgentTool ---
     if hasattr(proactive_orchestrator_tool, 'run_async') and callable(getattr(proactive_orchestrator_tool, 'run_async')):

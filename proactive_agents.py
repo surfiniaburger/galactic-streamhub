@@ -26,6 +26,8 @@ Example:
   Output: {"identified_context_keywords": ["board_game_setup", "terraforming_mars"]}
 - seen_items: ["laptop", "coffee mug", "notebook"], user_activity_hint: "working"
   Output: {"identified_context_keywords": ["work_session", "productivity"]}
+- seen_items: ["textbook", "notebook", "pen"], user_activity_hint: "studying"
+  Output: {"identified_context_keywords": ["studying_from_textbook", "academic_research_context"]}
 
 Output ONLY a JSON object with the key "identified_context_keywords" (a list of strings).
 """
@@ -33,11 +35,14 @@ Output ONLY a JSON object with the key "identified_context_keywords" (a list of 
 CONTEXTUAL_PRECOMPUTATION_INSTRUCTION = """
 You are a Proactive Precomputation Agent. You receive 'context_keywords' (e.g., "cocktail_making", "manhattan_ingredients_present") and the original 'user_goal'.
 Your goal is to determine if a proactive suggestion is warranted and, if so, pre-fetch relevant information using available tools (like CocktailDB for recipes, Google Maps for places, or GoogleSearchAgentTool for general queries).
+You also have access to 'QueryPubMedKnowledgeBase' for biomedical research topics.
 
 1.  **Analyze Context**: If 'context_keywords' strongly suggest a common task (e.g., making a specific cocktail, looking for a type of store for missing items implied by the context):
     *   Formulate a `proactive_suggestion_text` to offer help to the user.
     *   Use tools to gather `precomputed_data` that would be useful if the user accepts the suggestion.
     *   Example: If context is "manhattan_ingredients_present", suggest "I see you might be making a Manhattan. Would you like the recipe?". Precompute the Manhattan recipe.
+    *   Example: If context is "studying_from_textbook" and the user's goal is vague like "help me study", suggest "I see you have a textbook. If you tell me the subject, I can search my biomedical knowledge base for related articles or provide general study tips.". You could precompute general study tips using `GoogleSearchAgentTool(request="effective study techniques for textbooks")`. If the user later specifies "cardiology", you might use `QueryPubMedKnowledgeBase(query_text="overview of cardiology for students")`.
+    
 2.  **Tool Usage**: Prioritize specific tools (Cocktail, Maps) if applicable. If general information is needed that these tools don't cover, use the `GoogleSearchAgentTool` by providing it a clear search query as its `request` argument (e.g., `GoogleSearchAgentTool(request="history of the Manhattan cocktail")`). Generate the appropriate function calls. The system will execute them.
 3.  **Output**:
     *   If a proactive action is taken: Output a JSON object:
@@ -50,7 +55,7 @@ REACTIVE_TASK_DELEGATOR_INSTRUCTION = """
 You are a specialized assistant that helps users accomplish tasks based on their goals and items visually identified in their environment. You will be provided with the user's goal (`user_goal`) and a list of 'seen_items'.
 You may also receive `precomputed_data` if a proactive suggestion related to this task was previously accepted by the user.
 
-Your primary capabilities are:
+Your capabilities include:
 1.  **Recipe and Ingredient Analysis**:
     *   If `precomputed_data` contains a relevant recipe, use that.
     *   Otherwise, if the `user_goal` involves making a food or drink item, use the 'Cocktail' tool to find the recipe.
@@ -60,7 +65,8 @@ Your primary capabilities are:
     *   If `precomputed_data` contains relevant store information, use that.
     *   Otherwise, if ingredients are missing and the `user_goal` implies finding them, use the 'Google Maps' tool to find stores.
 3.  **General Information Retrieval**: If the user asks a general question not covered by Cocktail or Maps tools, or if `precomputed_data` contains search results, use the `GoogleSearchAgentTool` to find an answer. Formulate a clear search query for its `request` argument (e.g., `GoogleSearchAgentTool(request="What is the weather like in London tomorrow if I want to make a cocktail outside?")`).
-4.  **General Task Execution**: Address other user goals using available tools as appropriate.
+4.  **Biomedical Information Retrieval**: If the user's goal is related to medical or scientific research, and `precomputed_data` doesn't already cover it, use the `QueryPubMedKnowledgeBase` tool.
+5.  **General Task Execution**: Address other user goals using available tools as appropriate.
 
 **Input Format You Will Receive (as part of a larger JSON in session state, but you'll be invoked with these key args):**
 *   `user_goal`: A string describing what the user wants to achieve.
@@ -210,7 +216,8 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
         # Refined proactive opportunity logic:
         # Check if any recognized proactive contexts are present
         proactive_triggers = ["cocktail_making", "manhattan_ingredients_present",
-                              "board_game_setup", "terraforming_mars",
+                              "board_game_setup", "terraforming_mars", "studying_from_textbook",
+                              "academic_research_context",
                               "salad_ingredients", "food_preparation"] # Add more as needed
 
         has_proactive_context = any(trigger in context_keywords for trigger in proactive_triggers)
