@@ -44,12 +44,14 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
         *   **EnvironmentalMonitorAgent** (`LlmAgent`): Analyzes visual context and user hints to identify proactive opportunities.
         *   **ContextualPrecomputationAgent** (`LlmAgent`): If a proactive opportunity is identified, this agent formulates suggestions and pre-fetches relevant information using tools.
         *   **ReactiveTaskDelegatorAgent** (`LlmAgent`): Handles explicit user tasks or executes actions based on accepted proactive suggestions.
+        *   **PubMedRAGAgent** (`LlmAgent`): Orchestrates biomedical research by querying a local PubMed database, performing live web searches, querying the ClinicalTrials.gov API, and querying the OpenFDA API for drug adverse events. It synthesizes this information and can add new web-found articles to the local knowledge base.
 *   **Proactive Assistance:** AVA can anticipate user needs based on visual context and general queries, offering timely suggestions.
 *   **Tool Integration (MCP):** Leverages Model Context Protocol (MCP) tools for:
     *   Cocktail recipes
     *   Weather information
     *   Google Maps functionalities (geocoding, place search).
-*   **Agent as a Tool:** A dedicated **GoogleSearchAgent** (wrapped as an `AgentTool`) is available to other agents for general information retrieval.
+*   **Agent as a Tool:** A dedicated `GoogleSearchAgent` (wrapped as an `AgentTool`) is available to other agents for general information retrieval.
+*   **Knowledge Augmentation:** Can ingest new biomedical articles found via web search into its local knowledge base (MongoDB & BigQuery).
 *   **Real-time Streaming:** Bidirectional streaming of audio and text using WebSockets.
 *   **Dynamic UI:** A futuristic, dark-themed web interface with 3D animated elements and a space-themed background.
 
@@ -74,8 +76,12 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   `EnvironmentalMonitorAgent`: Identifies contextual keywords from visual input and user hints.
     *   `ContextualPrecomputationAgent`: If a proactive context is identified, this agent formulates a suggestion and can use tools (including the `GoogleSearchAgentTool` or MCP tools like CocktailDB) to pre-fetch data.
     *   `ReactiveTaskDelegatorAgent`: Handles direct user requests or tasks following an accepted proactive suggestion. It can use MCP tools or the `GoogleSearchAgentTool` as needed.
-5.  **GoogleSearchAgentTool:** An `LlmAgent` specifically for performing Google searches, made available as a tool to other agents.
-5.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
+    *   `PubMedRAGAgent`: If a query is biomedical, AVA delegates to this agent. It uses sub-agents (`LocalPubMedSearchAgent`, `WebPubMedSearchAgent`, `ClinicalTrialsSearchAgent`, `OpenFDASearchAgent` running in parallel via `ResearchOrchestratorAgent`) to gather information, then synthesizes it and offers to save new web findings.
+5.  **Specialized Search Agents:**
+    *   `GoogleSearchAgentTool`: An `LlmAgent` for general web searches, available as a tool.
+    *   `ClinicalTrialsSearchAgent`: An `LlmAgent` for querying the live ClinicalTrials.gov API.
+    *   `OpenFDASearchAgent`: An `LlmAgent` for querying the live OpenFDA API for drug adverse events.
+6.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
 
 
 ![Architecture Diagram](/assets/flowchart.jpg)
@@ -253,6 +259,8 @@ To deploy this application to Google Cloud Run:
 ├── proactive_agents.py         # Defines the ProactiveContextOrchestratorAgent and its sub-agents
 ├── google_search_agent/        # Directory for the Google Search agent
 │   └── agent.py
+├── openfda_pipeline.py         # Logic for querying OpenFDA API
+├── clinical_trials_pipeline.py # Logic for querying ClinicalTrials.gov API
 ├── main.py                     # FastAPI application, WebSocket endpoints, ADK runner setup
 ├── mcp_server/                 # Directory for local MCP server scripts
 │   ├── cocktail.py             # MCP server for cocktail recipes

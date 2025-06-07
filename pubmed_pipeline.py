@@ -70,6 +70,21 @@ class PubMedArticle(BaseModel):
     score: Optional[float] = None
 
 
+
+def get_mongodb_uri():
+    """
+    Retrieves the MongoDB URI from an environment variable or Secret Manager.
+    Prefers the environment variable if it is set.
+    """
+    mongodb_uri = os.environ.get("MONGODB_URI") # Name of environment variable
+    if mongodb_uri:
+        logger.info("Using MongoDB URI from environment variable.")
+        return mongodb_uri
+    else:
+        logger.info("MongoDB URI not found in environment variable.  Retrieving from Secret Manager.")
+        return get_secret(MONGODB_SECRET_ID)
+
+
 def get_secret(secret_id, version_id="latest"):
     """Retrieves a secret from Google Cloud Secret Manager."""
     try:
@@ -84,7 +99,7 @@ def get_secret(secret_id, version_id="latest"):
 def connect_to_mongodb():
     """Connects to MongoDB using URI from Secret Manager."""
     try:
-        uri = get_secret(MONGODB_SECRET_ID)
+        uri = get_mongodb_uri() 
         # Explicitly use certifi's CA bundle for TLS connections
         client = MongoClient(
             uri,

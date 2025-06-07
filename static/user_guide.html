@@ -451,6 +451,16 @@
                             <code>Hello AVA.</code>
                             <p><em>(AVA, through its EnvironmentalMonitorAgent, might detect the textbook. The ContextualPrecomputationAgent might then offer: "I see you have a textbook there. If you tell me the subject or title, I can try to find related articles or summaries for you.")</em></p>
                         </li>
+                        <p>Testing ClinicalTrials.gov Integration (Biomedical Query):</p>
+                        <code>"Are there any phase 3 clinical trials for new Alzheimer's drugs?"</code>
+                        <p><em>(AVA should delegate this to the `PubMedRAGAgent`. This agent will use its sub-agents, including the `ClinicalTrialsSearchAgent`, to query the live ClinicalTrials.gov API. The synthesized response should include information about relevant trials, attributed to ClinicalTrials.gov.)</em></p>
+                    </li>
+                    <li>
+                        <p>Testing OpenFDA Integration (Drug Adverse Events):</p>
+                        <code>"What are some reported adverse events for Ozempic?"</code>
+                        <p><em>(AVA should delegate this to the `PubMedRAGAgent`. This agent will use its sub-agents, including the `OpenFDASearchAgent`, to query the live OpenFDA API for adverse event reports related to "Ozempic". The synthesized response should include information about these reports, attributed to OpenFDA.)</em></p>
+                    </li>
+                    <li>
                         <li>
                             <p>Testing PubMed RAG (Biomedical Query):</p>
                             <p><em>(Ensure you have run the `pubmed_pipeline.py` script to ingest data into MongoDB.)</em></p>
