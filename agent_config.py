@@ -1,5 +1,6 @@
 # /Users/surfiniaburger/Desktop/app/agent_config.py
 from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.parallel_agent import ParallelAgent # New Import
 from typing import Any, Dict, List
 import logging
 from google.adk.tools.agent_tool import AgentTool
@@ -16,8 +17,9 @@ from proactive_agents import (
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
+from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, ingest_single_article_data
-
+from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
 
 MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
 GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
@@ -77,7 +79,8 @@ Core Capabilities:
     *   **ALWAYS POPULATE SESSION STATE BEFORE CALLING `ProactiveContextOrchestrator`**:
         *   `ctx.session.state['input_user_goal'] = "The user's stated goal or query"`
         *   `ctx.session.state['input_seen_items'] = ["item1", "item2"]` (from your visual analysis)
-        *   `ctx.session.state['initial_context_keywords'] = ["keyword1", "keyword2"]` (from your visual and query analysis)
+        *   `ctx.session.state['initial_context_keywords'] = ["keyword1", "keyword2"]` (from your visual and query analysis) # type: ignore
+    *   **HOW TO CALL `ProactiveContextOrchestratorTool`**: Invoke it by providing a single argument named `request`.
     *   **HOW TO CALL**: Invoke `ProactiveContextOrchestratorTool` by providing it with a single argument named `request`.
         *   The value of `request` should be a JSON string containing 'user_goal' (what the user explicitly asked for this turn) and 'seen_items' (what you currently see). The tool name will be `ProactiveContextOrchestrator`.
         *   Example: `ProactiveContextOrchestrator(request='{"user_goal": "What can I make with these?", "seen_items": ["gin", "lime"]}')`
@@ -101,14 +104,36 @@ If you are absolutely unable to help with a request, or if none of your tools ar
 
 # --- Instruction for PubMedRAGAgent ---
 PUBMED_RAG_AGENT_INSTRUCTION = """
-You are an AI assistant specializing in biomedical research. Your task is to provide comprehensive answers to user questions.
-1.  First, use the 'query_pubmed_articles' tool to search your existing knowledge base of PubMed scientific abstracts.
-2.  Second, use the 'google_search_agent' tool to perform a web search for the same query to find potentially newer or supplementary information. Append "latest research" or "recent studies" to the query for the web search to focus on new findings.
-3.  Synthesize the information from both the knowledge base and the web search to provide a comprehensive answer. Clearly distinguish information sources if relevant.
-4.  If you find a highly relevant new article from the web search that is not present in the knowledge base results, include its key findings in your answer.
-    Then, ask the user if they would like to add this new article to the permanent knowledge base.
-    If you make this offer, you MUST store the new article's details (extracted title, full text/abstract, and source URL if available) into the session state under the key 'new_article_to_ingest'.
-    Phrase your offer like: "I also found a newer article titled '[Extracted Title]' from [Source URL if available] discussing [brief summary]. Would you like to add this to our knowledge base for future reference? If so, please say 'yes, save the new article'."
+You are a Research Synthesizer AI. Your primary role is to orchestrate research using specialized tools and then synthesize the findings. You will receive the user's research query as an input argument (typically `args['request']` if called as a tool).
+
+Workflow:
+1.  Your first action is to take the input query (from `args['request']`) and store it in the session state under the key 'current_research_query'.
+2.  Next, call the 'ResearchOrchestratorAgent' tool (formerly DualSourceResearchAgent). This tool will use the 'current_research_query' from session state to simultaneously search multiple sources.
+    The 'ResearchOrchestratorAgent' will make the results of these searches available in session state:
+    - Local PubMed results will be under the key 'local_db_results' (this will be a list of article objects).
+    - Web search results will be under the key 'web_search_results' (this will be a string summary).
+    - ClinicalTrials.gov results will be under the key 'clinical_trials_results' (a list of clinical trial summary dictionaries).
+    - OpenFDA adverse event results will be under the key 'openfda_adverse_event_results' (a list of adverse event summary dictionaries).
+3.  After 'ResearchOrchestratorAgent' completes, retrieve 'local_db_results', 'web_search_results', 'clinical_trials_results', and 'openfda_adverse_event_results' from the session state.
+    To access these, imagine you have direct access to a dictionary-like `session_state`. For example, to get local results, you'd use `session_state['local_db_results']`.
+4.  Synthesize the information from all available sources: 'local_db_results' (our PubMed knowledge base), 'web_search_results' (live web information), 'clinical_trials_results' (data from ClinicalTrials.gov), and 'openfda_adverse_event_results' (drug adverse event reports from OpenFDA) to provide a comprehensive answer to the original user query.
+    When presenting information, clearly attribute it to its source. For example:
+    - "From our PubMed knowledge base, I found..."
+    - "Recent web searches indicate that..."
+    - "ClinicalTrials.gov lists the following relevant trials: [Summarize key trial details like NCT ID, Brief Title, Overall Status, and a snippet of the Brief Summary if available. Mention if a trial is 'RECRUITING' or 'TERMINATED' if that information is present and seems relevant. Do not list more than 2-3 trials unless specifically asked for more]."
+    - "OpenFDA reports the following adverse events for [drug name if specified in query]: [Summarize key adverse event report details like report ID, received date, seriousness, and a snippet of reactions. Mention 1-2 reports unless more are requested]."
+    If a source returns no relevant information, you can state that.
+5.  **Identify and Offer to Save New Web Articles**:
+    *   Carefully review 'web_search_results'. Try to identify if it mentions one or more distinct new articles/studies that are not obviously covered by 'local_db_results'.
+    *   For ONE such highly relevant new article:
+        *   Extract its **title**. If a clear title isn't present, create a concise descriptive title based on its content.
+        *   Extract its **abstract or a detailed summary** (this will be the `abstract_text` for ingestion). Aim for a substantial summary from the 'web_search_results'.
+        *   Extract its **source URL** if provided in the 'web_search_results'. If no direct URL to the article is found, use the primary search result URL that led to this information if discernible.
+    *   If you successfully extract these details for a new article:
+        *   Include its key findings in your synthesized answer to the user.
+        *   Then, ask the user if they would like to add this specific new article to the permanent knowledge base.
+        *   If you make this offer, you MUST store the new article's details as a JSON-compatible dictionary (keys: "title", "abstract_text", "source_url", "authors" (default to empty string), "journal" (default to empty string), "publication_year" (default to null/None)) into the session state under the key `new_article_to_ingest`.
+        *   Phrase your offer like: "From the web search, I found information that seems to be from an article titled '[Extracted Title]' (Source: [Source URL if available]), discussing [brief summary of the abstract_text you extracted]. This information was not in our local database. Would you like to add this to our knowledge base for future reference? If so, please say 'yes, save the new article'."
 5.  If multiple articles are relevant from either source, summarize the key findings.
 6.  Cite source articles (e.g., title, authors, publication year for PubMed; title and URL for web results) if possible.
 7.  If the knowledge base does not contain relevant information and the web search is also unhelpful, state that you couldn't find specific information.
@@ -181,13 +206,76 @@ def create_streaming_agent_with_mcp_tools(
         # output_key="reactive_task_final_answer"
     )
 
-    # 2.5 Create the PubMedRAGAgent instance
+    # 2.5 Define Specialist Agents for Parallel Research
+    local_pubmed_search_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="LocalPubMedSearchAgent",
+        instruction="You are a specialized agent. Your task is to search a local PubMed database. \n1. Retrieve the user's query from the session state key 'current_research_query'.\n2. Call the 'query_pubmed_articles' tool using this query.\n3. The list of articles returned by the tool is your primary result. Output this list directly.",
+        tools=[query_pubmed_articles],
+        output_key="local_db_results" # Store the direct output of this agent here
+    )
+
+    web_pubmed_search_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="WebPubMedSearchAgent",
+        instruction="You are a specialized agent. Your task is to search the web for recent biomedical information.\n1. Retrieve the user's query from the session state key 'current_research_query'.\n2. Append 'latest research' or 'recent studies' to this query.\n3. Call the 'google_search_agent' tool with this modified query.\n4. The string summary returned by the tool is your primary result. Output this string directly.",
+        tools=[google_search_agent_tool],
+        output_key="web_search_results" # Store the direct output of this agent here
+    )
+
+    clinical_trials_search_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ClinicalTrialsSearchAgent",
+        instruction=(
+            "You are a specialized agent. Your task is to search the ClinicalTrials.gov database "
+            "for clinical trial information relevant to the user's query.\n"
+            "1. Retrieve the user's query from the session state key 'current_research_query'.\n"
+            "2. Call the 'query_clinical_trials_data' tool using this query.\n"
+            "3. The list of clinical trial study summaries (dictionaries) returned by the tool is your primary result. "
+            "Output this list directly."
+        ),
+        tools=[query_clinical_trials_data], # Pass the function directly
+        output_key="clinical_trials_results" # Store the direct output of this agent here
+    )
+    logging.info(f"ClinicalTrialsSearchAgent instance created: {clinical_trials_search_agent.name}")
+
+    openfda_search_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="OpenFDASearchAgent",
+        instruction=(
+            "You are a specialized agent. Your task is to search the OpenFDA database "
+            "for drug adverse event reports relevant to a drug name mentioned in the user's query.\n"
+            "1. Retrieve the user's query from session state key 'current_research_query'.\n"
+            "2. Identify if a specific drug name is mentioned. If not, or if the query is too general for adverse event search, you can output an empty list.\n"
+            "3. If a drug name is identified, call the 'query_drug_adverse_events' tool using this drug name.\n"
+            "4. The list of adverse event report summaries (dictionaries) returned by the tool is your primary result. "
+            "Output this list directly."
+        ),
+        tools=[query_drug_adverse_events],
+        output_key="openfda_adverse_event_results"
+    )
+
+    logging.info(f"OpenFDASearchAgent instance created: {openfda_search_agent.name}")
+
+    # 2.6 Create ParallelAgent for multi-source research (renamed for clarity)
+    research_orchestrator_agent = ParallelAgent(
+        name="ResearchOrchestratorAgent", # Renamed from DualSourceResearchAgent
+        sub_agents=[local_pubmed_search_agent, web_pubmed_search_agent, clinical_trials_search_agent, openfda_search_agent],
+        description="Concurrently searches local PubMed DB, the live web, ClinicalTrials.gov, and OpenFDA for biomedical information. Results are stored in session state."
+    )
+    logging.info(f"ResearchOrchestratorAgent instance created: {research_orchestrator_agent.name}")
+
+    research_orchestrator_agent_tool = AgentTool(agent=research_orchestrator_agent) # Renamed
+    if hasattr(research_orchestrator_agent_tool, 'run_async') and callable(getattr(research_orchestrator_agent_tool, 'run_async')):
+        research_orchestrator_agent_tool.func = research_orchestrator_agent_tool.run_async # type: ignore
+
+    # 2.7 Create the main PubMedRAGAgent (now a Synthesizer/Orchestrator)
     pubmed_rag_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID, # Or GEMINI_FLASH_MODEL_ID
         name="PubMedRAGAgent",
         instruction=PUBMED_RAG_AGENT_INSTRUCTION,
-        description="Answers biomedical questions by searching and synthesizing information from a PubMed abstract knowledge base.",
-        tools=[query_pubmed_articles, google_search_agent_tool] # Now has both tools
+        description="Orchestrates research across local DB and web, then synthesizes findings and manages knowledge base updates.",
+        tools=[research_orchestrator_agent_tool] # Updated tool name
     )
     logging.info(f"PubMedRAGAgent instance created: {pubmed_rag_agent.name}")
 
@@ -226,6 +314,10 @@ def create_streaming_agent_with_mcp_tools(
     # 4.5 Wrap PubMedRAGAgent as a tool for the Root Agent (AVA) to delegate to
     pubmed_rag_agent_tool = AgentTool(
         agent=pubmed_rag_agent
+        # The Root Agent will pass the user's query to this tool.
+        # The PubMedRAGAgent's instruction needs to know to take this input
+        # (e.g., from args['request']) and put it into session.state['current_research_query']
+        # before calling the DualSourceResearchAgent tool.
     )
     if hasattr(pubmed_rag_agent_tool, 'run_async') and callable(getattr(pubmed_rag_agent_tool, 'run_async')):
         pubmed_rag_agent_tool.func = pubmed_rag_agent_tool.run_async # type: ignore
