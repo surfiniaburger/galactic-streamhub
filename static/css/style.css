@@ -763,3 +763,185 @@ body.user-guide-page .app-main {
   border-top: 1px solid var(--border-color);
 }
 /* The main .app-footer style will apply to the overall page footer on user_guide.html */
+
+
+/* ADD THESE STYLES TO THE END OF style.css */
+
+/* --- New Layout for Main App --- */
+@media (min-width: 768px) {
+  .app-main {
+      /* Chat panel now takes up the whole screen by default */
+      grid-template-columns: 1fr;
+      max-width: 960px; /* Center the chat experience */
+  }
+  #chat-panel {
+      grid-column: 1 / -1; /* Span full width */
+      height: calc(100vh - var(--header-height) - (2 * var(--desktop-padding)) - 2rem);
+  }
+}
+
+/* --- Agent "Thinking" Indicator Styles --- */
+#agent-thinking-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 15px;
+    padding: 12px;
+}
+#agent-thinking-indicator .loader-dots {
+    /* Re-using loader styles, but can be customized */
+    position: relative;
+    transform: scale(0.8); /* Make it a bit smaller */
+}
+#agent-thinking-indicator span {
+    font-family: var(--font-secondary);
+    font-style: normal;
+}
+#agent-thinking-indicator.hidden {
+    display: none !important;
+}
+
+/* --- Input Area with Icons --- */
+#messageForm {
+    align-items: flex-end; /* Align items to the bottom */
+}
+.input-wrapper {
+    flex-grow: 1;
+    position: relative;
+    display: flex;
+}
+#messageForm input[type="text"] {
+    padding-right: 90px; /* Make space for the icon buttons */
+}
+.input-controls {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.icon-button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 50%;
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+.icon-button:hover {
+    color: var(--text-color);
+    background-color: rgba(255, 255, 255, 0.1);
+}
+.icon-button.active {
+    color: var(--accent-color);
+    text-shadow: 0 0 8px var(--glow-color);
+}
+
+/* Tiny loader for audio initialization */
+.loader-dots-small {
+    display: inline-block;
+    position: relative;
+    width: 20px;
+    height: 20px;
+}
+.loader-dots-small div {
+    position: absolute; top: 8px; width: 4px; height: 4px; border-radius: 50%;
+    background: var(--accent-color); animation-timing-function: cubic-bezier(0, 1, 1, 0);
+}
+.loader-dots-small div:nth-child(1) { left: 2px; animation: loader-dots1 0.6s infinite; }
+.loader-dots-small div:nth-child(2) { left: 2px; animation: loader-dots2-small 0.6s infinite; }
+.loader-dots-small div:nth-child(3) { left: 9px; animation: loader-dots2-small 0.6s infinite; }
+.loader-dots-small div:nth-child(4) { left: 16px; animation: loader-dots3 0.6s infinite; }
+@keyframes loader-dots2-small { 0% { transform: translate(0, 0); } 100% { transform: translate(7px, 0); } }
+
+
+/* --- Picture-in-Picture Video Feed Styles --- */
+#video-pip-container {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 280px;
+    height: 210px;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 2px solid var(--accent-color);
+    box-shadow: 0 5px 25px rgba(0, 0, 0, 0.5);
+    z-index: 1001;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    transform-origin: bottom right;
+}
+#video-pip-container.hidden {
+    transform: scale(0.5);
+    opacity: 0;
+    pointer-events: none;
+}
+#video-pip-container video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Send button icon update */
+#sendButton.send-button-3d .button-top-face {
+    font-size: 1.2rem;
+}
+
+/* ADD THESE STYLES TO THE END OF style.css */
+
+/* --- Draggable Picture-in-Picture Video Feed Styles --- */
+#video-pip-container {
+  position: fixed; /* Changed from absolute to fixed */
+  bottom: 20px;
+  right: 20px;
+  width: 280px;
+  height: auto; /* Height will be determined by content */
+  border-radius: 12px;
+  border: 2px solid var(--border-color);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  z-index: 1001;
+  transition: transform 0.3s ease, opacity 0.3s ease, box-shadow 0.2s ease;
+  transform-origin: bottom right;
+  background-color: #000;
+  display: flex;
+  flex-direction: column;
+}
+#video-pip-container.hidden {
+  transform: scale(0.5);
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* NEW: Style for the drag handle */
+.pip-drag-handle {
+  width: 100%;
+  padding: 6px 0;
+  text-align: center;
+  background-color: rgba(20, 26, 48, 0.8);
+  color: var(--text-muted);
+  cursor: grab; /* Visual cue for desktop users */
+  touch-action: none; /* Prevents page scroll on mobile when dragging */
+}
+
+#video-pip-container video {
+  width: 100%;
+  height: auto; /* Let video determine height */
+  display: block;
+}
+
+/* NEW: Class added via JS during drag */
+body.pip-dragging {
+  user-select: none; /* Prevent text selection on the page while dragging */
+}
+#video-pip-container.pip-dragging {
+  cursor: grabbing;
+  transform: scale(1.03); /* Slightly enlarge the widget */
+  box-shadow: 0 12px 40px var(--glow-color); /* Add a prominent glow */
+  border-color: var(--accent-color);
+}
+#video-pip-container.pip-dragging .pip-drag-handle {
+  cursor: grabbing;
+}

@@ -5,9 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ADK Galactic StreamHub</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
     <!-- Vanta.js dependencies -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script> <!-- VANTA.SPACE uses three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.dots.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
 </head>
@@ -18,8 +20,8 @@
         <div id="vanta-fog-background"></div>
         <div id="threed-background"></div> 
         <header class="app-header">
-            <div class="app-header-content"> <!-- Wrapper for flex content -->
-                <h1>ADK Galactic StreamHub</h1>
+            <div class="app-header-content">
+                <h1>Galactic StreamHub</h1>
                 <nav>
                     <a href="/static/user_guide.html" class="header-nav-button">User Guide</a>
                 </nav>
@@ -27,54 +29,48 @@
         </header>
 
         <main class="app-main">
-            <section id="stream-controls-panel" class="panel">
-                <h2>Stream Controls</h2>
-                <div id="controls" class="button-group">
-                    <button type="button" id="startAudioButton" class="toggle-3d">
-                        <span class="button-top-face">Audio</span>
-                        <span class="button-front-face"></span>
-                        <span class="button-side-face"></span>
-                    </button>
+            <!-- The 'stream-controls-panel' is now removed from here -->
 
-                            <!-- **** NEW: Audio Loader **** -->
-                     <div id="audio-loader" class="loading-spinner-container hidden"> <!-- Starts hidden -->
-                        <div class="loader-dots">
-                           <div></div><div></div><div></div><div></div>
-                        </div>
-                           <p class="loader-text">Initializing Audio...</p>
-                     </div>
-                            <!-- **** END: Audio Loader **** -->
-                             
-                    <button type="button" id="startVideoButton" class="toggle-3d">
-                        <span class="button-top-face">Start Video</span>
-                        <span class="button-front-face"></span>
-                        <span class="button-side-face"></span>
-                    </button>
+            <!-- NEW: Miniature, floating video feed -->
+            <div id="video-pip-container" class="hidden">
+                <!-- THIS IS THE NEW DRAG HANDLE -->
+                <div class="pip-drag-handle">
+                    <i class="fas fa-grip-horizontal"></i>
                 </div>
-            </section>
-
-            <section id="media-display-panel" class="panel hidden-animated">
-                <h2>Live Feed</h2>
-                <div id="media-display">
-                    <video id="videoPreview" width="640" height="480" autoplay playsinline muted></video>
-                    <canvas id="videoCanvas" style="display:none;"></canvas>
-                </div>
-            </section>
+                <video id="videoPreview" autoplay playsinline muted></video>
+                <canvas id="videoCanvas" style="display:none;"></canvas>
+            </div>
 
             <section id="chat-panel" class="panel">
                 <h2>Comms Channel</h2>
                 <div id="chat-container">
                     <div id="messages">
-                        <div class="message system">Welcome to the Galactic StreamHub!</div>
-                        <!-- Example messages -->
-                        <!-- <div class="message user">User_Alpha: Checking in.</div> -->
-                        <!-- <div class="message remote">User_Beta: Loud and clear!</div> -->
+                        <div class="message system">Welcome to the Galactic StreamHub! Please stand by for connection.</div>
+                        <!-- NEW: Agent Loading Indicator -->
+                        <div id="agent-thinking-indicator" class="message system hidden">
+                            <div class="loader-dots">
+                               <div></div><div></div><div></div><div></div>
+                            </div>
+                            <span>AVA is processing your request...</span>
+                        </div>
                     </div>
                     <form id="messageForm">
-                        <label for="message" class="visually-hidden">Message:</label>
-                        <input type="text" id="message" name="message" placeholder="Transmit your message..." />
+                        <div class="input-wrapper">
+                            <label for="message" class="visually-hidden">Message:</label>
+                            <input type="text" id="message" name="message" placeholder="Transmit your message..." autocomplete="off" />
+                            <!-- NEW: Icon-based controls inside the input area -->
+                            <div class="input-controls">
+                                <button type="button" id="startAudioButton" class="icon-button" title="Toggle Voice Chat">
+                                    <i class="fas fa-microphone"></i>
+                                </button>
+                                <div id="audio-loader" class="loader-dots-small hidden"><div></div><div></div><div></div><div></div></div>
+                                <button type="button" id="startVideoButton" class="icon-button" title="Toggle Video Feed">
+                                    <i class="fas fa-video"></i>
+                                </button>
+                            </div>
+                        </div>
                         <button type="submit" id="sendButton" class="send-button-3d" disabled>
-                            <span class="button-top-face">Send</span>
+                            <span class="button-top-face"><i class="fas fa-paper-plane"></i></span>
                             <span class="button-front-face"></span>
                         </button>
                     </form>
@@ -87,55 +83,59 @@
         </footer>
     </div>
 
+<!-- Firebase SDK -->
+<script type="module">
+    // Import the functions you need from the SDKs
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+    import { getFirestore } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
+    import { getDatabase } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-database.js";
+    
+    // Your web app's Firebase configuration (from your screenshot)
+    const firebaseConfig = {
+        apiKey: "",
+        authDomain: "studio-l13dd.firebaseapp.com",
+        projectId: "studio-l13dd",
+        storageBucket: "studio-l13dd.appspot.com", // Corrected storage bucket
+        messagingSenderId: "1074728173827",
+        appId: "1:1074728173827:web:004b76b81cf68b38bbe936"
+    };
+
+    // Initialize Firebase
+    const app = initializeApp(firebaseConfig);
+
+    // Initialize and export Firebase services for other modules to use
+    const auth = getAuth(app);
+    const firestore = getFirestore(app);
+    const realtimeDB = getDatabase(app);
+
+    // Sign in the user anonymously
+    signInAnonymously(auth).catch((error) => {
+        console.error("Anonymous sign-in failed:", error);
+    });
+
+    // Make services available to other scripts
+    window.firebaseServices = {
+        auth,
+        firestore,
+        realtimeDB
+    };
+</script>
+
+<script src="/static/js/app.js" type="module"></script>
+
     <script src="/static/js/app.js" type="module"></script>
     <script>
+        // Vanta.js background initialization code remains the same
         document.addEventListener('DOMContentLoaded', () => {
             const fogBackgroundElement = document.getElementById('vanta-fog-background');
-            const dotsBackgroundElement = document.getElementById('threed-background');
-
-            // Initialize VANTA.FOG (Subtle Nebula)
             if (fogBackgroundElement && window.VANTA && window.VANTA.FOG) {
-                VANTA.FOG({
-                    el: fogBackgroundElement,
-                    mouseControls: true,
-                    touchControls: true,
-                    gyroControls: false,
-                    minHeight: 200.00,
-                    minWidth: 200.00,
-                    scale: 1.00,
-                    highlightColor: 0x223355, // Muted blue/purple for nebula highlight
-                    midtoneColor: 0x112244,   // Muted blue/purple for nebula midtone
-                    lowlightColor: 0x0a0f1f,  // Should blend with your main background
-                    baseColor: 0x0a0f1f,      // Should blend with your main background
-                    blurFactor: 0.6,         // Adjust for softness (0.0 to 1.0)
-                    speed: 0.3,              // Very slow movement
-                    zoom: 0.4                // Zoom out to make it feel distant
-                });
-                console.log("VANTA.FOG initialized for nebula effect.");
-            } else {
-                console.warn("VANTA.FOG prerequisites not met.");
+                VANTA.FOG({ el: fogBackgroundElement, mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200.00, minWidth: 200.00, highlightColor: 0x223355, midtoneColor: 0x112244, lowlightColor: 0x0a0f1f, baseColor: 0x0a0f1f, blurFactor: 0.6, speed: 0.3, zoom: 0.4 });
             }
-
-            // Initialize VANTA.DOTS (Stars - as configured before)
+            const dotsBackgroundElement = document.getElementById('threed-background');
             if (dotsBackgroundElement && window.VANTA && window.VANTA.DOTS) {
-                VANTA.DOTS({
-                    el: dotsBackgroundElement,
-                    mouseControls: true,
-                    touchControls: true,
-                    // ... other DOTS options from step 1 ...
-                    backgroundColor: 0x00000000, // TRANSPARENT for DOTS layer
-                    color: 0xffffff,
-                    color2: 0x00f2ff,
-                    size: 2.8,
-                    spacing: 30.00,
-                    showLines: false
-                });
-                console.log("VANTA.DOTS initialized over fog.");
-            } else {
-                console.warn("VANTA.DOTS prerequisites not met for layering.");
+                VANTA.DOTS({ el: dotsBackgroundElement, mouseControls: true, touchControls: true, backgroundColor: 0x0, color: 0xffffff, color2: 0x00f2ff, size: 2.8, spacing: 30.00, showLines: false });
             }
-
-            // ... rest of your existing DOMContentLoaded logic from app.js if it was here ...
         });
     </script>
 </body>
