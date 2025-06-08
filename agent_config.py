@@ -17,9 +17,11 @@ from proactive_agents import (
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
+from tools.chart_tool import generate_simple_bar_chart, generate_simple_line_chart # NEW IMPORT
 from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, ingest_single_article_data
 from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
+from google.adk.agents import SequentialAgent
 
 MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
 GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
@@ -90,53 +92,66 @@ Core Capabilities:
         *   If no proactive suggestion, the tool will handle the task reactively, and its direct output (your final response) will be the answer.
 4.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous.
 5.  **Delegation to `PubMedRAGAgent`**:
-    *   If the user's query is clearly biomedical or research-oriented (e.g., "find papers on...", "what's the latest on..."), delegate to the `PubMedRAGAgent` tool.
+    *   If the user's query is clearly biomedical or research-oriented (e.g., "find papers on...", "what's the latest on..."), delegate the task to the `PubMedRAGAgent` tool.
+
+    *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `PubMedRAGAgent` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
+
     *   **AFTER `PubMedRAGAgent` RUNS, CHECK SESSION STATE FOR `new_article_to_ingest`**:
-        *   The `PubMedRAGAgent` might have identified a new article from the web and stored its details in `ctx.session.state['new_article_to_ingest']` if it offered to save it.
-        *   If `ctx.session.state['new_article_to_ingest']` exists AND the user's current message is an affirmative response to saving it (e.g., "yes, save the new article", "save this article", "add it to the knowledge base"), then:
-            1.  Retrieve the article details (title, abstract_text, source_url, etc.) from `ctx.session.state['new_article_to_ingest']`.
-            2.  Call the `ingest_single_article_data` tool with these details.
-            3.  Inform the user about the outcome of the ingestion (e.g., "Successfully added the new article to the knowledge base." or "Sorry, I encountered an error trying to save the article.").
-            4.  Crucially, clear the stored article details: `ctx.session.state.pop('new_article_to_ingest', None)`.
+        *   This is a background check. Even while passing through the main response, you should still check the session state for `new_article_to_ingest`.
+        *   If it exists AND the user's *next* message is an affirmative response (e.g., "yes, save it"), then you should call the `ingest_single_article_data` tool and inform the user of the result.
 6.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
 """
 
 # --- Instruction for PubMedRAGAgent ---
 PUBMED_RAG_AGENT_INSTRUCTION = """
-You are a Research Synthesizer AI. Your primary role is to orchestrate research using specialized tools and then synthesize the findings. You will receive the user's research query as an input argument (typically `args['request']` if called as a tool).
+You are a Research Synthesizer AI. Your primary role is to orchestrate research, synthesize findings, and generate visualizations. You will receive the user's query as input.
 
-Workflow:
-1.  Your first action is to take the input query (from `args['request']`) and store it in the session state under the key 'current_research_query'.
-2.  Next, call the 'ResearchOrchestratorAgent' tool (formerly DualSourceResearchAgent). This tool will use the 'current_research_query' from session state to simultaneously search multiple sources.
-    The 'ResearchOrchestratorAgent' will make the results of these searches available in session state:
-    - Local PubMed results will be under the key 'local_db_results' (this will be a list of article objects).
-    - Web search results will be under the key 'web_search_results' (this will be a string summary).
-    - ClinicalTrials.gov results will be under the key 'clinical_trials_results' (a list of clinical trial summary dictionaries).
-    - OpenFDA adverse event results will be under the key 'openfda_adverse_event_results' (a list of adverse event summary dictionaries).
-3.  After 'ResearchOrchestratorAgent' completes, retrieve 'local_db_results', 'web_search_results', 'clinical_trials_results', and 'openfda_adverse_event_results' from the session state.
-    To access these, imagine you have direct access to a dictionary-like `session_state`. For example, to get local results, you'd use `session_state['local_db_results']`.
-4.  Synthesize the information from all available sources: 'local_db_results' (our PubMed knowledge base), 'web_search_results' (live web information), 'clinical_trials_results' (data from ClinicalTrials.gov), and 'openfda_adverse_event_results' (drug adverse event reports from OpenFDA) to provide a comprehensive answer to the original user query.
-    When presenting information, clearly attribute it to its source. For example:
-    - "From our PubMed knowledge base, I found..."
-    - "Recent web searches indicate that..."
-    - "ClinicalTrials.gov lists the following relevant trials: [Summarize key trial details like NCT ID, Brief Title, Overall Status, and a snippet of the Brief Summary if available. Mention if a trial is 'RECRUITING' or 'TERMINATED' if that information is present and seems relevant. Do not list more than 2-3 trials unless specifically asked for more]."
-    - "OpenFDA reports the following adverse events for [drug name if specified in query]: [Summarize key adverse event report details like report ID, received date, seriousness, and a snippet of reactions. Mention 1-2 reports unless more are requested]."
-    If a source returns no relevant information, you can state that.
-5.  **Identify and Offer to Save New Web Articles**:
-    *   Carefully review 'web_search_results'. Try to identify if it mentions one or more distinct new articles/studies that are not obviously covered by 'local_db_results'.
-    *   For ONE such highly relevant new article:
-        *   Extract its **title**. If a clear title isn't present, create a concise descriptive title based on its content.
-        *   Extract its **abstract or a detailed summary** (this will be the `abstract_text` for ingestion). Aim for a substantial summary from the 'web_search_results'.
-        *   Extract its **source URL** if provided in the 'web_search_results'. If no direct URL to the article is found, use the primary search result URL that led to this information if discernible.
-    *   If you successfully extract these details for a new article:
-        *   Include its key findings in your synthesized answer to the user.
-        *   Then, ask the user if they would like to add this specific new article to the permanent knowledge base.
-        *   If you make this offer, you MUST store the new article's details as a JSON-compatible dictionary (keys: "title", "abstract_text", "source_url", "authors" (default to empty string), "journal" (default to empty string), "publication_year" (default to null/None)) into the session state under the key `new_article_to_ingest`.
-        *   Phrase your offer like: "From the web search, I found information that seems to be from an article titled '[Extracted Title]' (Source: [Source URL if available]), discussing [brief summary of the abstract_text you extracted]. This information was not in our local database. Would you like to add this to our knowledge base for future reference? If so, please say 'yes, save the new article'."
-5.  If multiple articles are relevant from either source, summarize the key findings.
-6.  Cite source articles (e.g., title, authors, publication year for PubMed; title and URL for web results) if possible.
-7.  If the knowledge base does not contain relevant information and the web search is also unhelpful, state that you couldn't find specific information.
+**Your Complete Workflow:**
+1.  **Orchestrate Research:** Your FIRST action is to call the `ResearchOrchestratorAgent` tool. This tool will search multiple sources (local DB, web, clinical trials, FDA) and store the results in session state. You do not need to do anything with its direct output; it works in the background.
+
+2.  **Synthesize Findings:** After the `ResearchOrchestratorAgent` tool has run, your next step is to process the results it left in session state ('local_db_results', 'web_search_results', etc.). Create a comprehensive textual summary answering the user's original query. Attribute information to its source (e.g., "From the local database...", "A recent web search found...").
+
+3.  **Offer to Save New Articles:** While synthesizing, if you find a distinct new article in the 'web_search_results', extract its details (title, summary, URL) and store them in session state under the key `new_article_to_ingest`. Then, in your textual summary, explicitly ask the user if they'd like to save it.
+
+4.  **Extract and Visualize Data:** After creating the summary, re-examine the research text for quantifiable data.
+    *   If you find data suitable for a chart, you MUST first extract this data and create a **JSON string of a single object**.
+    *   This object must contain keys for the chart data itself, a descriptive title, and axis labels.
+    *   **Example:** If the text says "...reduced cancer in 81% of patients and achieved complete remission in 52%...", you must create a JSON string like this:
+        `'{"chart_data": [{"category": "Cancer Reduction", "value": 81}, {"category": "Complete Remission", "value": 52}], "chart_title": "Efficacy of huCART19-IL18 Therapy", "chart_xlabel": "Clinical Outcome", "chart_ylabel": "Patients (%)"}'`
+    *   Then, call the `VisualizationAgent` tool. The `request` argument for this tool call **must be this complete JSON string**.
+
+5.  **Combine Everything:** Your FINAL response to the user MUST be a single, coherent message that combines:
+    a. The full textual research summary you synthesized in step 2.
+    b. The question about saving a new article (if applicable from step 3).
+    c. The chart URL returned by the `VisualizationAgent` tool (if applicable from step 4), formatted clearly.
+
+Example Final Output Structure:
+"Based on the research, here is a summary of findings on CAR T-cell therapy...[detailed summary]...
+From the web, I found a new article titled 'Enhanced CAR T-cell Efficacy'. Would you like to add this to the knowledge base?
+Additionally, here is a chart visualizing the study's success rates:
+[/static/charts/chart_url.png]"
+"""
+
+
+VISUALIZATION_AGENT_INSTRUCTION = """
+You are a Data Visualization Agent. Your task is to take a request containing a JSON object with chart data and metadata, and generate a chart.
+
+1.  **Parse the Input:** The input `request` argument will be a JSON string of a single object. This object will contain keys like `chart_data`, `chart_title`, `chart_xlabel`, and `chart_ylabel`. Parse this JSON string.
+
+2.  **Call the Charting Tool:** Call the `generate_simple_bar_chart` tool. You MUST use the values from the parsed JSON object to populate the tool's arguments:
+    *   `data`: Use the value from the `chart_data` key.
+    *   `title`: Use the value from the `chart_title` key.
+    *   `xlabel`: Use the value from the `chart_xlabel` key.
+    *   `ylabel`: Use the value from the `chart_ylabel` key.
+    *   You must also correctly identify the `category_field` and `value_field` from the keys inside the `chart_data` list.
+
+3.  **Return ONLY the URL:** The tool will return a URL (e.g., "/static/charts/chart_uuid.png"). Your final output MUST be this URL string and nothing else. Do not add any extra text.
+
+**Example Workflow:**
+-   **Input `request`:** `'[{"therapy": "huCART19-IL18", "remission_rate": 52}, {"therapy": "HSP-CAR30", "remission_rate": 60}]'`
+-   **Your Action:** Call the tool `generate_simple_bar_chart(data=[...parsed data...], category_field="therapy", value_field="remission_rate", title="CAR T-Cell Remission Rates")`.
+-   **Your Final Output:** `"/static/charts/chart_12345.png"`
 """
 
 
@@ -245,17 +260,31 @@ def create_streaming_agent_with_mcp_tools(
         instruction=(
             "You are a specialized agent. Your task is to search the OpenFDA database "
             "for drug adverse event reports relevant to a drug name mentioned in the user's query.\n"
-            "1. Retrieve the user's query from session state key 'current_research_query'.\n"
-            "2. Identify if a specific drug name is mentioned. If not, or if the query is too general for adverse event search, you can output an empty list.\n"
-            "3. If a drug name is identified, call the 'query_drug_adverse_events' tool using this drug name.\n"
-            "4. The list of adverse event report summaries (dictionaries) returned by the tool is your primary result. "
-            "Output this list directly."
+            "1. Retrieve the user's query from the session state key 'current_research_query'.\n"
+            "2. Identify all distinct drug names mentioned in the query (e.g., 'Ozempic, Metformin, and Lisinopril').\n"
+            "3. For each identified drug name, call the 'query_drug_adverse_events' tool. You might need to make multiple parallel tool calls if multiple drugs are mentioned.\n"
+            "4. Your final output MUST be a single JSON dictionary where keys are the drug names and values are the lists of adverse event report summaries (dictionaries) returned by the tool for that drug.\n"
+            "   Example output: `{\"Ozempic\": [{\"report_summary\": \"...\"}, ...], \"Metformin\": [{\"report_summary\": \"...\"}, ...]}`\n"
+            "5. If no drug names are identified or no reports are found for any drug, output an empty JSON dictionary: `{}`."
         ),
         tools=[query_drug_adverse_events],
         output_key="openfda_adverse_event_results"
     )
 
     logging.info(f"OpenFDASearchAgent instance created: {openfda_search_agent.name}")
+
+    visualization_agent = LlmAgent(
+       model=GEMINI_PRO_MODEL_ID,
+       name="VisualizationAgent",
+       instruction=VISUALIZATION_AGENT_INSTRUCTION,
+       tools=[generate_simple_bar_chart, generate_simple_line_chart], # UPDATED TOOLS
+       output_key="visualization_output" # Or handle output directly
+    )
+    logging.info(f"VisualizationAgent instance created: {visualization_agent.name}")
+
+    visualization_agent_tool = AgentTool(agent=visualization_agent)
+    if hasattr(visualization_agent_tool, 'run_async') and callable(getattr(visualization_agent_tool, 'run_async')):
+       visualization_agent_tool.func = visualization_agent_tool.run_async # type: ignore
 
     # 2.6 Create ParallelAgent for multi-source research (renamed for clarity)
     research_orchestrator_agent = ParallelAgent(
@@ -269,15 +298,25 @@ def create_streaming_agent_with_mcp_tools(
     if hasattr(research_orchestrator_agent_tool, 'run_async') and callable(getattr(research_orchestrator_agent_tool, 'run_async')):
         research_orchestrator_agent_tool.func = research_orchestrator_agent_tool.run_async # type: ignore
 
-    # 2.7 Create the main PubMedRAGAgent (now a Synthesizer/Orchestrator)
+    # 2.7 DELETE the SequentialAgent and create this new LlmAgent instead
     pubmed_rag_agent = LlmAgent(
-        model=GEMINI_PRO_MODEL_ID, # Or GEMINI_FLASH_MODEL_ID
-        name="PubMedRAGAgent",
-        instruction=PUBMED_RAG_AGENT_INSTRUCTION,
-        description="Orchestrates research across local DB and web, then synthesizes findings and manages knowledge base updates.",
-        tools=[research_orchestrator_agent_tool] # Updated tool name
+       name="PubMedRAGAgent", # This will be the tool name used by the root agent (AVA)
+       model=GEMINI_PRO_MODEL_ID,
+       instruction=PUBMED_RAG_AGENT_INSTRUCTION,
+       description="Orchestrates research, synthesizes findings, and visualizes data to answer complex biomedical queries.",
+        tools=[
+           research_orchestrator_agent_tool, # Give it the research tool
+           visualization_agent_tool          # Give it the visualization tool
+       ]
+     )
+
+    pubmed_rag_agent_tool = AgentTool(
+    agent=pubmed_rag_agent
     )
-    logging.info(f"PubMedRAGAgent instance created: {pubmed_rag_agent.name}")
+    if hasattr(pubmed_rag_agent_tool, 'run_async'):
+       pubmed_rag_agent_tool.func = pubmed_rag_agent_tool.run_async # type: ignore
+    all_root_agent_tools.append(pubmed_rag_agent_tool)
+    logging.info(f"PubMedRAGAgent wrapped as AgentTool ('{pubmed_rag_agent_tool.name}') and added to Root Agent's tools.")
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(
@@ -311,18 +350,7 @@ def create_streaming_agent_with_mcp_tools(
     all_root_agent_tools.append(proactive_orchestrator_tool)
     logging.info(f"ProactiveContextOrchestrator wrapped as AgentTool ('{proactive_orchestrator_tool.name}') and added to Root Agent's tools.")
 
-    # 4.5 Wrap PubMedRAGAgent as a tool for the Root Agent (AVA) to delegate to
-    pubmed_rag_agent_tool = AgentTool(
-        agent=pubmed_rag_agent
-        # The Root Agent will pass the user's query to this tool.
-        # The PubMedRAGAgent's instruction needs to know to take this input
-        # (e.g., from args['request']) and put it into session.state['current_research_query']
-        # before calling the DualSourceResearchAgent tool.
-    )
-    if hasattr(pubmed_rag_agent_tool, 'run_async') and callable(getattr(pubmed_rag_agent_tool, 'run_async')):
-        pubmed_rag_agent_tool.func = pubmed_rag_agent_tool.run_async # type: ignore
-    all_root_agent_tools.append(pubmed_rag_agent_tool)
-    logging.info(f"PubMedRAGAgent wrapped as AgentTool ('{pubmed_rag_agent_tool.name}') and added to Root Agent's tools.")
+    # 4.5 Wrap ResearchAndVisualizeAgent as a tool for the Root Agent (AVA) to delegate to
 
     # 4.6 Add the ingest_single_article_data function directly as a tool for the Root Agent
     # The ADK will wrap it. Its docstring in pubmed_pipeline.py serves as its description.

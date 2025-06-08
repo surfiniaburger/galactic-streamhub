@@ -16,5 +16,6 @@ dependencies = [
     "pymongo >= 4.10.1",
     "pandas >= 2.2.3",
     "pyarrow >= 20.0.0",
-    "pandas-gbq>= 0.29.0"
+    "pandas-gbq>= 0.29.0",
+    "matplotlib>= 3.10.3"
 ]

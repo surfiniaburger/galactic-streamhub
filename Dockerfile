@@ -3,6 +3,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 # Install bash alongside other dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # For matplotlib
+    libfreetype6-dev \
+    libpng-dev \
+    pkg-config \
     curl=7.88.1-10+deb12u12 \
     build-essential=12.9 \
     # Install NodeSource repo for Node.js 20.x
