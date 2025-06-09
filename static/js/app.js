@@ -23,8 +23,8 @@ let is_video_mode_active = false;
 const messageForm = document.getElementById("messageForm");
 const messageInput = document.getElementById("message");
 const messagesDiv = document.getElementById("messages");
-const agentThinkingIndicator = document.getElementById("agent-thinking-indicator");
 let currentMessageId = null;
+let loadingIndicatorId = null; // Track the loading indicator
 
 const audioLoader = document.getElementById('audio-loader');
 const startAudioButton = document.getElementById("startAudioButton");
@@ -45,10 +45,32 @@ const VIDEO_FRAME_QUALITY = 0.7;
 // --- Loading State Control ---
 function showAgentThinking(isThinking) {
     if (isThinking) {
-        agentThinkingIndicator.classList.remove("hidden");
+        // Remove any existing loading indicator
+        if (loadingIndicatorId) {
+            const existingLoader = document.getElementById(loadingIndicatorId);
+            if (existingLoader) existingLoader.remove();
+        }
+        
+        // Create new loading indicator
+        loadingIndicatorId = "loading_" + Math.random().toString(36).substring(7);
+        const loadingElem = document.createElement("div");
+        loadingElem.id = loadingIndicatorId;
+        loadingElem.classList.add("message", "system");
+        loadingElem.innerHTML = `
+            <div class="loader-dots">
+               <div></div><div></div><div></div><div></div>
+            </div>
+            <span>AVA is processing your request...</span>
+        `;
+        messagesDiv.appendChild(loadingElem);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     } else {
-        agentThinkingIndicator.classList.add("hidden");
+        // Remove loading indicator
+        if (loadingIndicatorId) {
+            const loadingElem = document.getElementById(loadingIndicatorId);
+            if (loadingElem) loadingElem.remove();
+            loadingIndicatorId = null;
+        }
     }
 }
 
@@ -73,17 +95,22 @@ function connectWebsocket() {
         try {
             const message_from_server = JSON.parse(event.data);
             console.log("[AGENT TO CLIENT] ", message_from_server);
-            console.log("message_from_server.turn_complete:", message_from_server.turn_complete); // ADDED LOG
+            console.log("message_from_server.turn_complete:", message_from_server.turn_complete);
     
             if (message_from_server.turn_complete) {
                 currentMessageId = null;
-                showAgentThinking(false); // Moved here
+                showAgentThinking(false); // Hide loading indicator
                 return;
             }
     
             if (message_from_server.mime_type === "audio/pcm" && audioPlayerNode) {
                 audioPlayerNode.port.postMessage(base64ToArray(message_from_server.data));
             } else if (message_from_server.mime_type === "text/plain") {
+                // Hide loading indicator when first text response arrives
+                if (loadingIndicatorId) {
+                    showAgentThinking(false);
+                }
+                
                 const textData = message_from_server.data;
                 let messageElem = document.getElementById(currentMessageId);
     
@@ -151,7 +178,6 @@ function addSubmitHandler() {
         return false;
     };
 }
-
 
 function sendMessage(message) {
     if (websocket && websocket.readyState === WebSocket.OPEN) {
@@ -274,11 +300,6 @@ function sendVideoFrame() {
 if (startVideoButton) startVideoButton.addEventListener("click", toggleVideo);
 
 document.addEventListener('DOMContentLoaded', connectWebsocket);
-
-
-
-
-// ADD THIS ENTIRE BLOCK TO THE END OF app.js
 
 // --- Draggable PiP Widget Logic ---
 const pipContainer = document.getElementById('video-pip-container');
