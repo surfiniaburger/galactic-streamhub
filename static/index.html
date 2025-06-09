@@ -21,7 +21,7 @@
         <div id="threed-background"></div> 
         <header class="app-header">
             <div class="app-header-content">
-                <h1>Galactic StreamHub</h1>
+                <h1>ADK Galactic StreamHub</h1>
                 <nav>
                     <a href="/static/user_guide.html" class="header-nav-button">User Guide</a>
                 </nav>
@@ -31,15 +31,16 @@
         <main class="app-main">
             <!-- The 'stream-controls-panel' is now removed from here -->
 
-            <!-- NEW: Miniature, floating video feed -->
-            <div id="video-pip-container" class="hidden">
-                <!-- THIS IS THE NEW DRAG HANDLE -->
-                <div class="pip-drag-handle">
-                    <i class="fas fa-grip-horizontal"></i>
-                </div>
-                <video id="videoPreview" autoplay playsinline muted></video>
-                <canvas id="videoCanvas" style="display:none;"></canvas>
-            </div>
+<!-- NEW: Miniature, floating video feed -->
+<div id="video-pip-container" class="hidden">
+    <!-- THIS IS THE NEW DRAG HANDLE -->
+    <div class="pip-drag-handle">
+        <i class="fas fa-grip-horizontal"></i>
+    </div>
+    <video id="videoPreview" autoplay playsinline muted></video>
+    <canvas id="videoCanvas" style="display:none;"></canvas>
+</div>
+
 
             <section id="chat-panel" class="panel">
                 <h2>Comms Channel</h2>
@@ -82,47 +83,6 @@
             <p>© 2025 ADK Initiative - Nexus Division</p>
         </footer>
     </div>
-
-<!-- Firebase SDK -->
-<script type="module">
-    // Import the functions you need from the SDKs
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
-    import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
-    import { getFirestore } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-firestore.js";
-    import { getDatabase } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-database.js";
-    
-    // Your web app's Firebase configuration (from your screenshot)
-    const firebaseConfig = {
-        apiKey: "",
-        authDomain: "studio-l13dd.firebaseapp.com",
-        projectId: "studio-l13dd",
-        storageBucket: "studio-l13dd.appspot.com", // Corrected storage bucket
-        messagingSenderId: "1074728173827",
-        appId: "1:1074728173827:web:004b76b81cf68b38bbe936"
-    };
-
-    // Initialize Firebase
-    const app = initializeApp(firebaseConfig);
-
-    // Initialize and export Firebase services for other modules to use
-    const auth = getAuth(app);
-    const firestore = getFirestore(app);
-    const realtimeDB = getDatabase(app);
-
-    // Sign in the user anonymously
-    signInAnonymously(auth).catch((error) => {
-        console.error("Anonymous sign-in failed:", error);
-    });
-
-    // Make services available to other scripts
-    window.firebaseServices = {
-        auth,
-        firestore,
-        realtimeDB
-    };
-</script>
-
-<script src="/static/js/app.js" type="module"></script>
 
     <script src="/static/js/app.js" type="module"></script>
     <script>
