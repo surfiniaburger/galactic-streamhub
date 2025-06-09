@@ -4,7 +4,14 @@
 
 // WebSocket handling
 const sessionId = Math.random().toString().substring(10);
-let ws_protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+// WebSocket handling
+let ws_protocol;
+if (window.location.protocol === "https:") {
+    ws_protocol = "wss:"; // Use Secure WebSockets if page is HTTPS
+} else {
+    ws_protocol = "ws:";  // Use regular WebSockets if page is HTTP
+}
 const ws_url = ws_protocol + "//" + window.location.host + "/ws/" + sessionId;
 console.log("Attempting to connect to WebSocket URL:", ws_url);
 
@@ -48,10 +55,14 @@ function showAgentThinking(isThinking) {
 // WebSocket handlers
 function connectWebsocket() {
     const connect_in_audio_mode = is_audio_mode_active;
+    if (websocket) {
+        websocket.close();
+    }
     websocket = new WebSocket(ws_url + "?is_audio=" + connect_in_audio_mode);
 
     websocket.onopen = function () {
-        console.log("WebSocket connection opened.");
+        console.log("WebSocket connection opened. Audio response mode:", connect_in_audio_mode);
+        appendLog("Connection opened.");
         const welcomeMsg = document.querySelector("#messages .system");
         if (welcomeMsg) welcomeMsg.textContent = "Connection established. Ready for transmission.";
         document.getElementById("sendButton").disabled = false;
@@ -103,6 +114,7 @@ function connectWebsocket() {
         console.log("WebSocket connection closed.");
         appendLog("Connection lost. Reconnecting in 5s...", "system");
         document.getElementById("sendButton").disabled = true;
+        showAgentThinking(false); // Ensure thinking indicator is hidden on close
         setTimeout(connectWebsocket, 5000);
     };
 
@@ -166,6 +178,7 @@ import { startAudioPlayerWorklet } from "./audio-player.js";
 import { startAudioRecorderWorklet, stopMicrophone as stopAudioCapture } from "./audio-recorder.js";
 
 async function toggleAudio() {
+    console.log("toggleAudio function called. is_audio_mode_active:", is_audio_mode_active);
     startAudioButton.disabled = true;
     if (!is_audio_mode_active) {
         audioLoader.classList.remove('hidden');
