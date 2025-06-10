@@ -104,6 +104,11 @@ function connectWebsocket() {
             }
     
             if (message_from_server.mime_type === "audio/pcm" && audioPlayerNode) {
+                // Hide thinking indicator when audio response starts
+                if (isProcessingAudioResponse) {
+                    showAgentThinking(false);
+                    isProcessingAudioResponse = false;
+                }
                 audioPlayerNode.port.postMessage(base64ToArray(message_from_server.data));
             } else if (message_from_server.mime_type === "text/plain") {
                 // Hide loading indicator when first text response arrives
@@ -123,25 +128,70 @@ function connectWebsocket() {
                 }
     
                 const imageUrlRegex = /(\/static\/charts\/[a-zA-Z0-9_-]+\.png)/g;
-                let existingHtml = messageElem.innerHTML;
-                let newContent = existingHtml + textData;
-                const sanitizedText = newContent.replace(/</g, "<").replace(/>/g, ">");
-                messageElem.innerHTML = sanitizedText.replace(
+                let existingText = messageElem.textContent || '';
+                let newContent = existingText + textData;
+                
+                // Convert markdown to HTML
+                const htmlContent = parseMarkdownToHTML(newContent);
+                
+                // Handle image URLs
+                const finalContent = htmlContent.replace(
                     imageUrlRegex,
                     '<br><img src="$1" alt="Generated Chart" style="max-width: 100%; display: block; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px;"><br>'
                 );
-    
+                
+                messageElem.innerHTML = finalContent;
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
             }
         } catch (error) {
             console.error("Error in websocket.onmessage:", error);
         }
     }    
+
+    // Simple markdown to HTML parser function
+function parseMarkdownToHTML(markdown) {
+    let html = markdown;
+    
+    // Headers
+    html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+    
+    // Bold
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // Italic
+    html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    
+    // Code blocks
+    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    
+    // Inline code
+    html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+    
+    // Unordered lists
+    html = html.replace(/^\* (.*$)/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+    
+    // Clean up multiple <br> tags
+    html = html.replace(/(<br>\s*){3,}/g, '<br><br>');
+    
+    return html;
+}
     websocket.onclose = function () {
         console.log("WebSocket connection closed.");
         appendLog("Connection lost. Reconnecting in 5s...", "system");
         document.getElementById("sendButton").disabled = true;
         showAgentThinking(false); // Ensure thinking indicator is hidden on close
+        // Clear audio timers on connection close
+        if (audioSilenceTimer) {
+            clearTimeout(audioSilenceTimer);
+            audioSilenceTimer = null;
+        }
+        isProcessingAudioResponse = false;
         setTimeout(connectWebsocket, 5000);
     };
 
@@ -200,6 +250,8 @@ function base64ToArray(base64) {
 // Audio handling
 let audioPlayerNode;
 let audioRecorderNode;
+let audioSilenceTimer = null;
+let isProcessingAudioResponse = false;
 import { startAudioPlayerWorklet } from "./audio-player.js";
 import { startAudioRecorderWorklet, stopMicrophone as stopAudioCapture } from "./audio-recorder.js";
 
@@ -233,7 +285,13 @@ async function toggleAudio() {
         if (audioRecorderNode && audioStream) {
             stopAudioCapture(audioStream);
         }
+        // Clear any pending timers
+        if (audioSilenceTimer) {
+            clearTimeout(audioSilenceTimer);
+            audioSilenceTimer = null;
+        }
         is_audio_mode_active = false;
+        isProcessingAudioResponse = false;
         startAudioButton.classList.remove('active');
         appendLog("Voice chat deactivated.", "system");
         startAudioButton.disabled = false;
@@ -247,6 +305,35 @@ if (startAudioButton) startAudioButton.addEventListener("click", toggleAudio);
 
 function audioRecorderHandler(pcmData) {
     if (!is_audio_mode_active) return;
+    
+    // Clear any existing silence timer
+    if (audioSilenceTimer) {
+        clearTimeout(audioSilenceTimer);
+        audioSilenceTimer = null;
+    }
+    
+    // Check if this is actual audio data (not silence)
+    const audioBuffer = new Uint8Array(pcmData);
+    let hasAudio = false;
+    for (let i = 0; i < audioBuffer.length; i += 2) {
+        const sample = Math.abs((audioBuffer[i] | (audioBuffer[i + 1] << 8)) - 32768);
+        if (sample > 1000) { // Threshold for detecting speech
+            hasAudio = true;
+            break;
+        }
+    }
+    
+    if (hasAudio) {
+        // Set timer to detect when user stops speaking
+        audioSilenceTimer = setTimeout(() => {
+            if (is_audio_mode_active && !isProcessingAudioResponse) {
+                showAgentThinking(true);
+                isProcessingAudioResponse = true;
+                console.log("Audio silence detected - showing thinking indicator");
+            }
+        }, 1500); // Show thinking indicator after 1.5 seconds of silence
+    }
+    
     sendMessage({ mime_type: "audio/pcm", data: arrayBufferToBase64(pcmData) });
 }
 

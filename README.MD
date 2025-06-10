@@ -213,7 +213,7 @@ To deploy this application to Google Cloud Run:
     ```bash
     export SERVICE_NAME='galactic-streamhub' # Or your preferred service name
     export LOCATION='us-central1'         # Or your preferred region
-    export PROJECT_ID='your-gcp-project-id' # Replace with your Project ID
+    export PROJECT_ID='silver-455021' # Replace with your Project ID
     ```
 
 3.  **Deploy to Cloud Run:**
