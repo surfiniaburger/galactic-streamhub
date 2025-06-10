@@ -1,46 +1,134 @@
 /**
- * app.js: JS code for the adk-streaming sample app.
+ * app.js: JS code for the Galactic StreamHub app with Firebase Auth.
  */
 
-// WebSocket handling
-const sessionId = Math.random().toString().substring(10);
+// --- Firebase Initialization ---
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+import { 
+    getAuth, 
+    onAuthStateChanged, 
+    GoogleAuthProvider, 
+    signInWithPopup,
+    signOut
+} from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
 
-// WebSocket handling
-let ws_protocol;
-if (window.location.protocol === "https:") {
-    ws_protocol = "wss:"; // Use Secure WebSockets if page is HTTPS
-} else {
-    ws_protocol = "ws:";  // Use regular WebSockets if page is HTTP
-}
-const ws_url = ws_protocol + "//" + window.location.host + "/ws/" + sessionId;
-console.log("Attempting to connect to WebSocket URL:", ws_url);
+// Your web app's Firebase configuration
+const firebaseConfig = {
+  apiKey: "",
+  authDomain: "studio-l13dd.firebaseapp.com",
+  projectId: "studio-l13dd",
+  storageBucket: "studio-l13dd.firebasestorage.app",
+  messagingSenderId: "1074728173827",
+  appId: "1:1074728173827:web:004b76b81cf68b38bbe936"
+};
 
+// Initialize Firebase
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const provider = new GoogleAuthProvider();
+
+// --- Global State ---
 let websocket = null;
 let is_audio_mode_active = false;
 let is_video_mode_active = false;
+let currentMessageId = null;
+let loadingIndicatorId = null;
+let videoStream = null;
+let audioStream = null;
+let videoFrameInterval = null;
+const VIDEO_FRAME_INTERVAL_MS = 1000;
+const VIDEO_FRAME_QUALITY = 0.7;
 
-// Get DOM elements
+// --- DOM Elements ---
 const messageForm = document.getElementById("messageForm");
 const messageInput = document.getElementById("message");
 const messagesDiv = document.getElementById("messages");
-let currentMessageId = null;
-let loadingIndicatorId = null; // Track the loading indicator
-
-const audioLoader = document.getElementById('audio-loader');
+const sendButton = document.getElementById("sendButton");
 const startAudioButton = document.getElementById("startAudioButton");
-
 const startVideoButton = document.getElementById("startVideoButton");
+const audioLoader = document.getElementById('audio-loader');
 const videoPipContainer = document.getElementById("video-pip-container");
 const videoPreview = document.getElementById("videoPreview");
 const videoCanvas = document.getElementById("videoCanvas");
 const videoCtx = videoCanvas.getContext('2d');
 
-let videoStream = null;
-let audioStream = null;
+// Auth UI Elements
+const loginGate = document.getElementById('login-gate');
+const signInButton = document.getElementById('signInButton');
+const signOutButton = document.getElementById('signOutButton');
+const userProfileDiv = document.getElementById('user-profile');
+const userNameSpan = document.getElementById('user-name');
+const userAvatarImg = document.getElementById('user-avatar');
 
-let videoFrameInterval = null;
-const VIDEO_FRAME_INTERVAL_MS = 1000;
-const VIDEO_FRAME_QUALITY = 0.7;
+
+// --- Core Authentication Logic ---
+
+// The onAuthStateChanged observer is the central point of control.
+onAuthStateChanged(auth, async (user) => {
+    if (user) {
+        // User is signed in
+        console.log("User authenticated:", user.displayName);
+        userNameSpan.textContent = user.displayName;
+        userAvatarImg.src = user.photoURL;
+        userProfileDiv.classList.remove('hidden');
+        loginGate.style.display = 'none'; // Hide login gate
+
+        // Get the secure ID token and then connect
+        try {
+            const idToken = await user.getIdToken(true);
+            console.log("ID Token obtained successfully");
+            // This ensures we ONLY connect after the token is retrieved.
+            setInputsLocked(false); // Unlock the UI
+            connectWebsocket(idToken); // Connect with the secure token
+        } catch (error) {
+            console.error("Error getting ID token:", error);
+            setInputsLocked(true);
+            appendLog("Authentication token error. Please sign in again.", "system");
+        }
+
+    } else {
+        // User is signed out
+        console.log("User is signed out.");
+        userProfileDiv.classList.add('hidden');
+        loginGate.style.display = 'flex'; // Show login gate
+
+        setInputsLocked(true); // Lock the UI
+
+        // Ensure websocket is closed
+        if (websocket) {
+            websocket.close();
+            websocket = null;
+        }
+        // Use querySelector to be safe
+        const systemMsg = document.querySelector("#messages .system");
+        if(systemMsg) systemMsg.textContent = "Please sign in to establish a connection.";
+    }
+});
+
+signInButton.addEventListener('click', () => {
+    signInWithPopup(auth, provider).catch(error => {
+        console.error("Sign-in error:", error);
+        appendLog(`Sign-in failed: ${error.message}`, "system");
+    });
+});
+
+signOutButton.addEventListener('click', () => {
+    signOut(auth).catch(error => {
+        console.error("Sign-out error:", error);
+    });
+});
+
+// --- UI Control ---
+
+function setInputsLocked(isLocked) {
+    messageInput.disabled = isLocked;
+    sendButton.disabled = isLocked;
+    startAudioButton.disabled = isLocked;
+    startVideoButton.disabled = isLocked;
+
+    messageInput.placeholder = isLocked ? "Authenticate to transmit..." : "Transmit your message...";
+
+}
 
 // --- Loading State Control ---
 function showAgentThinking(isThinking) {
@@ -75,19 +163,27 @@ function showAgentThinking(isThinking) {
 }
 
 // WebSocket handlers
-function connectWebsocket() {
-    const connect_in_audio_mode = is_audio_mode_active;
-    if (websocket) {
-        websocket.close();
+function connectWebsocket(token) {
+    if (!token) {
+        console.error("Connection failed: No authentication token provided.");
+        appendLog("Authentication error. Please sign in again.", "system");
+        return;
     }
-    websocket = new WebSocket(ws_url + "?is_audio=" + connect_in_audio_mode);
+    if (websocket) websocket.close();
 
-    websocket.onopen = function () {
-        console.log("WebSocket connection opened. Audio response mode:", connect_in_audio_mode);
-        appendLog("Connection opened.");
-        const welcomeMsg = document.querySelector("#messages .system");
-        if (welcomeMsg) welcomeMsg.textContent = "Connection established. Ready for transmission.";
-        document.getElementById("sendButton").disabled = false;
+    const ws_protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // **CRITICAL**: Properly encode the token parameter
+    const encodedToken = encodeURIComponent(token);
+    const ws_url = `${ws_protocol}//${window.location.host}/ws?token=${encodedToken}&is_audio=${is_audio_mode_active}`;
+    
+    console.log("Attempting to connect to secure WebSocket...");
+    console.log("WebSocket URL (without token):", ws_url.replace(/token=[^&]+/, 'token=***'));
+    
+    websocket = new WebSocket(ws_url);
+
+    websocket.onopen = () => {
+        console.log("Secure WebSocket connection opened.");
+        appendLog("Connection established. Ready for transmission.", "system");
         addSubmitHandler();
     };
 
@@ -192,7 +288,19 @@ function parseMarkdownToHTML(markdown) {
             audioSilenceTimer = null;
         }
         isProcessingAudioResponse = false;
-        setTimeout(connectWebsocket, 5000);
+        // Reconnect with fresh token
+        setTimeout(async () => {
+            const user = auth.currentUser;
+            if (user) {
+                try {
+                    const freshToken = await user.getIdToken(true);
+                    connectWebsocket(freshToken);
+                } catch (error) {
+                    console.error("Error getting fresh token for reconnection:", error);
+                    appendLog("Reconnection failed. Please refresh the page.", "system");
+                }
+            }
+        }, 5000);
     };
 
     websocket.onerror = function (e) {
@@ -386,7 +494,7 @@ function sendVideoFrame() {
 
 if (startVideoButton) startVideoButton.addEventListener("click", toggleVideo);
 
-document.addEventListener('DOMContentLoaded', connectWebsocket);
+
 
 // --- Draggable PiP Widget Logic ---
 const pipContainer = document.getElementById('video-pip-container');

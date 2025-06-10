@@ -26,6 +26,12 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParamet
 
 from google.cloud import secretmanager 
 
+### --- NEW --- ###
+# Import Firebase Admin SDK components
+import firebase_admin
+from firebase_admin import credentials, auth
+### --- END NEW --- ###
+
 # Import agent configuration
 from agent_config import create_streaming_agent_with_mcp_tools
 
@@ -37,6 +43,7 @@ APP_NAME = "ADK MCP Streaming App"
 STATIC_DIR = Path("static")
 
 # Initialize ADK services
+
 session_service = InMemorySessionService()
 
 # --- MCP Server Parameter Definitions & Pydantic Model ---
@@ -155,6 +162,30 @@ async def _collect_tools_stack(
 # --- FastAPI Application Lifespan (for loading/unloading MCP tools) ---
 @asynccontextmanager
 async def app_lifespan(app_instance: FastAPI) -> Any:
+    ### --- NEW --- ###
+    # Initialize Firebase Admin SDK at application startup.
+    # Using ApplicationDefaultCredentials() works automatically in Google Cloud environments
+    # like Cloud Workstations, Cloud Run, etc.
+    try:
+        logging.info("Initializing Firebase Admin SDK...")
+        cred = credentials.ApplicationDefault()
+        firebase_admin.initialize_app(cred, {
+            'projectId': 'studio-l13dd',
+        })
+
+        logging.info("Firebase Admin SDK initialized successfully for project 'studio-l13dd'.")
+
+    # Handle the specific case where credentials are not found.
+    except google_exceptions.DefaultCredentialsError:
+        logging.critical("FATAL: Could not find Application Default Credentials.")
+        logging.critical("--> For local development, run 'gcloud auth application-default login'")
+        logging.critical("--> For deployment, ensure the service account has the correct IAM roles.")
+        # In a real production scenario, you might want to exit the app here.
+    except Exception as e:
+        logging.critical(f"FATAL: Firebase Admin SDK failed to initialize: {e}", exc_info=True)
+        # You might want to prevent the app from starting fully if Firebase is required.
+    ### --- END NEW --- ###
+
     global g_maps_api_key_value # Allow modification of the global variable
     logging.info("Application Lifespan: Startup initiated - Loading MCP Tools.")
     app_instance.state.mcp_tools = {}
@@ -426,15 +457,33 @@ async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: Li
 
 
 # --- FastAPI WebSocket Endpoint ---
-@app.websocket("/ws/{session_id}")
+@app.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
-    session_id: str,
+    token: str = Query(..., description="Firebase Auth ID Token"),
     is_audio: str = Query("false", description="Set to 'true' if client supports audio I/O")
 ):
+    uid = None
+    try:
+        # **CRITICAL SECURITY STEP: Verify the token**
+        # This checks the token against Firebase's servers. If it's invalid, expired,
+        # or fake, it will raise an exception.
+        decoded_token = auth.verify_id_token(token)
+        uid = decoded_token['uid']
+        user_name = decoded_token.get('name', 'Unknown User')
+        logging.info(f"Client token verified. UID: {uid}, Name: {user_name}")
+
+    except Exception as e:
+        # If verification fails, log the error and refuse the connection.
+        logging.error(f"Authentication failed: {e}", exc_info=False) # exc_info=False to not log the full token
+        # Close with code 1011 (server error) to signal to the client.
+        await websocket.close(code=1011)
+        return
+
+    # If verification succeeds, proceed with the connection.    
     await websocket.accept()
     actual_is_audio = is_audio.lower() == "true"
-    logging.info(f"Client #{session_id} connected via WebSocket, audio mode: {actual_is_audio}")
+    logging.info(f"Client #{uid} connected via WebSocket, audio mode: {actual_is_audio}")
 
     # Access application state which should contain the MCPToolsets
     app_state = websocket.app.state
@@ -450,12 +499,12 @@ async def websocket_endpoint(
         # A simple check that toolsets list exists and is a list:
         mcp_toolsets_initialized_correctly = True 
         if not app_state.mcp_toolsets: # If list is empty, but you expect toolsets
-             logging.warning(f"MCPToolsets list is empty for session {session_id}, though app_state.mcp_toolsets exists.")
+             logging.warning(f"MCPToolsets list is empty for session {uid}, though app_state.mcp_toolsets exists.")
              # You might still consider this an error state depending on your app's requirements
              # mcp_toolsets_initialized_correctly = False # Uncomment if an empty list is an error
 
     if not mcp_toolsets_initialized_correctly:
-        logging.error(f"MCP Tools (MCPToolsets) not properly initialized in app.state. Cannot serve requests for session {session_id}.")
+        logging.error(f"MCP Tools (MCPToolsets) not properly initialized in app.state. Cannot serve requests for session {uid}.")
         error_message = json.dumps({"message": "Error: Server is not fully initialized. Please try again later."})
         try:
             await websocket.send_text(error_message)
@@ -470,13 +519,14 @@ async def websocket_endpoint(
     agent_to_client_task, client_to_agent_task = None, None # Initialize to None
 
     try:
-        live_events, live_request_queue =await start_agent_session(session_id, app_state, actual_is_audio)
+        # **CRITICAL CHANGE: Use the verified 'uid' as the session ID.**
+        live_events, live_request_queue =await start_agent_session(uid, app_state, actual_is_audio)
 
         agent_to_client_task = asyncio.create_task(
-            agent_to_client_messaging(websocket, live_events, session_id)
+            agent_to_client_messaging(websocket, live_events, uid)
         )
         client_to_agent_task = asyncio.create_task(
-            client_to_agent_messaging(websocket, live_request_queue, session_id)
+            client_to_agent_messaging(websocket, live_request_queue, uid)
         )
 
         # Wait for either task to complete (e.g., disconnection or error)
@@ -486,23 +536,23 @@ async def websocket_endpoint(
         )
 
         for task in pending:
-            logging.info(f"Cancelling pending task for session {session_id}: {task.get_name()}")
+            logging.info(f"Cancelling pending task for session {uid}: {task.get_name()}")
             task.cancel()
         # Await the cancelled tasks to allow them to process cancellation
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
 
     except WebSocketDisconnect:
-        logging.info(f"Client #{session_id} disconnected from WebSocket endpoint.")
+        logging.info(f"Client #{uid} disconnected from WebSocket endpoint.")
     except Exception as e:
-        logging.error(f"Unexpected error in WebSocket endpoint for session {session_id}: {e}", exc_info=True)
+        logging.error(f"Unexpected error in WebSocket endpoint for session {uid}: {e}", exc_info=True)
         try:
             if websocket.client_state == websocket.client_state.CONNECTED:
                 await websocket.send_text(json.dumps({"message": "An unexpected server error occurred."}))
         except Exception:
             pass # Suppress errors during error reporting
     finally:
-        logging.info(f"Cleaning up WebSocket tasks for session {session_id}.")
+        logging.info(f"Cleaning up WebSocket tasks for session {uid}.")
         # Ensure tasks are cancelled if not already done
         tasks_to_cancel = [t for t in [agent_to_client_task, client_to_agent_task] if t and not t.done()]
         for task in tasks_to_cancel:
@@ -516,7 +566,7 @@ async def websocket_endpoint(
         # Ensure WebSocket is closed
         if websocket.client_state != websocket.client_state.DISCONNECTED:
             await websocket.close()
-        logging.info(f"WebSocket processing finished for client #{session_id}.")
+        logging.info(f"WebSocket processing finished for client #{uid}.")
 
 
 # --- Static Files & Root Endpoint ---

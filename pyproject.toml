@@ -17,5 +17,6 @@ dependencies = [
     "pandas >= 2.2.3",
     "pyarrow >= 20.0.0",
     "pandas-gbq>= 0.29.0",
-    "matplotlib>= 3.10.3"
+    "matplotlib>= 3.10.3",
+    "firebase-admin>= 6.9.0"
 ]
