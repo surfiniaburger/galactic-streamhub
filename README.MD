@@ -84,6 +84,55 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
 6.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
 
 
+## Firebase Authentication
+
+Galactic StreamHub now implements robust user authentication using Firebase, ensuring that only verified users can connect to the agent backend and interact with AVA.
+
+### Frontend (Client-Side - `static/js/app.js`)
+
+1.  **Firebase Initialization**:
+    *   The Firebase app is initialized using your project's `firebaseConfig` (ensure your actual API key and other details are securely managed, e.g., via environment variables for deployment, though the provided `app.js` has placeholders).
+2.  **Google Sign-In**:
+    *   Users can sign in using their Google accounts via a "Sign In with Google" button.
+    *   Firebase Authentication (`signInWithPopup` with `GoogleAuthProvider`) handles the OAuth flow.
+3.  **Authentication State Management**:
+    *   An `onAuthStateChanged` listener monitors the user's sign-in status.
+    *   **If Signed In**:
+        *   The user's display name and avatar are shown.
+        *   An ID token is retrieved from Firebase using `user.getIdToken(true)`. This token is a secure credential.
+        *   The WebSocket connection to the backend (`/ws`) is established, and the ID token is passed as a query parameter (`?token=<ID_TOKEN>`).
+        *   UI elements (message input, send button, audio/video controls) are enabled.
+    *   **If Signed Out**:
+        *   A login gate is displayed, prompting the user to sign in.
+        *   UI elements are disabled.
+        *   Any existing WebSocket connection is closed.
+4.  **Sign-Out**:
+    *   A "Sign Out" button allows users to end their session.
+
+### Backend (Server-Side - `main.py`)
+
+1.  **Firebase Admin SDK Initialization**:
+    *   The Firebase Admin SDK is initialized during the FastAPI application's startup (`app_lifespan`).
+    *   It uses Application Default Credentials, which is suitable for Google Cloud environments (e.g., Cloud Run, Cloud Workstations). For local development, ensure you've run `gcloud auth application-default login`.
+    *   The `projectId` is configured during initialization.
+2.  **Token Verification in WebSocket Endpoint**:
+    *   The `/ws` WebSocket endpoint now requires a `token` query parameter.
+    *   When a client attempts to connect, the backend uses `auth.verify_id_token(token)` to verify the received ID token with Firebase's authentication servers.
+    *   **If Verification Succeeds**:
+        *   The connection is accepted.
+        *   The `uid` (unique user ID) extracted from the decoded token is used as the `session_id` for the ADK agent session. This securely links the agent's activity to the authenticated user.
+    *   **If Verification Fails** (e.g., token is invalid, expired, or tampered with):
+        *   An error is logged.
+        *   The WebSocket connection is refused (closed with code 1011).
+
+### Security Benefits
+
+*   **Secure Access**: Only authenticated users can establish a WebSocket connection and interact with the agent.
+*   **User Identification**: The backend can reliably identify users based on their Firebase UID, allowing for potential future features like personalized experiences or data storage.
+*   **Standardized Authentication**: Leverages Google's robust and secure Firebase Authentication platform.
+
+
+
 ![Architecture Diagram](/assets/flowchart.jpg)
 
 ## Tech Stack
