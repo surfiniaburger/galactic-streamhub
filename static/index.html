@@ -5,69 +5,67 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Galactic StreamHub</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
-    <!-- Font Awesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <link rel="stylesheet" href="/static/css/style.css">
-    <!-- Vanta.js dependencies -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.dots.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
 </head>
 <body class="dark-theme">
 
+    <!-- =========== NEW: LOGIN GATE OVERLAY =========== -->
+    <div id="login-gate">
+        <div class="login-box">
+            <h2>Galactic StreamHub Access</h2>
+            <p>Please authenticate to establish a secure comms channel.</p>
+            <button id="signInButton" class="google-sign-in-button">
+                <i class="fab fa-google"></i>
+                <span>Sign in with Google</span>
+            </button>
+        </div>
+    </div>
+    <!-- ============================================= -->
+
     <div id="app-container">
-      
         <div id="vanta-fog-background"></div>
         <div id="threed-background"></div> 
         <header class="app-header">
             <div class="app-header-content">
                 <h1>Galactic StreamHub</h1>
                 <nav>
+                    <!-- =========== NEW: USER PROFILE DISPLAY =========== -->
+                    <div id="user-profile" class="hidden">
+                        <img id="user-avatar" src="" alt="User Avatar">
+                        <span id="user-name"></span>
+                        <button id="signOutButton" title="Sign Out"><i class="fas fa-sign-out-alt"></i></button>
+                    </div>
+                    <!-- ================================================ -->
                     <a href="/static/user_guide.html" class="header-nav-button">User Guide</a>
                 </nav>
             </div>
         </header>
 
         <main class="app-main">
-            <!-- The 'stream-controls-panel' is now removed from here -->
-
-<!-- NEW: Miniature, floating video feed -->
-<div id="video-pip-container" class="hidden">
-    <!-- THIS IS THE NEW DRAG HANDLE -->
-    <div class="pip-drag-handle">
-        <i class="fas fa-grip-horizontal"></i>
-    </div>
-    <video id="videoPreview" autoplay playsinline muted></video>
-    <canvas id="videoCanvas" style="display:none;"></canvas>
-</div>
-
+            <div id="video-pip-container" class="hidden">
+                <div class="pip-drag-handle"><i class="fas fa-grip-horizontal"></i></div>
+                <video id="videoPreview" autoplay playsinline muted></video>
+                <canvas id="videoCanvas" style="display:none;"></canvas>
+            </div>
 
             <section id="chat-panel" class="panel">
                 <h2>Comms Channel</h2>
                 <div id="chat-container">
                     <div id="messages">
-                        <div class="message system">Welcome to the Galactic StreamHub! Please stand by for connection.</div>
-                        <!-- NEW: Agent Loading Indicator -->
-                        <div id="agent-thinking-indicator" class="message system hidden">
-                            <div class="loader-dots">
-                               <div></div><div></div><div></div><div></div>
-                            </div>
-                            <span>AVA is processing your request...</span>
-                        </div>
+                        <div class="message system">Welcome to the Galactic StreamHub! Please authenticate to connect.</div>
                     </div>
                     <form id="messageForm">
                         <div class="input-wrapper">
                             <label for="message" class="visually-hidden">Message:</label>
-                            <input type="text" id="message" name="message" placeholder="Transmit your message..." autocomplete="off" />
-                            <!-- NEW: Icon-based controls inside the input area -->
+                            <input type="text" id="message" name="message" placeholder="Authenticate to transmit..." autocomplete="off" />
                             <div class="input-controls">
-                                <button type="button" id="startAudioButton" class="icon-button" title="Toggle Voice Chat">
-                                    <i class="fas fa-microphone"></i>
-                                </button>
+                                <button type="button" id="startAudioButton" class="icon-button" title="Toggle Voice Chat"><i class="fas fa-microphone"></i></button>
                                 <div id="audio-loader" class="loader-dots-small hidden"><div></div><div></div><div></div><div></div></div>
-                                <button type="button" id="startVideoButton" class="icon-button" title="Toggle Video Feed">
-                                    <i class="fas fa-video"></i>
-                                </button>
+                                <button type="button" id="startVideoButton" class="icon-button" title="Toggle Video Feed"><i class="fas fa-video"></i></button>
                             </div>
                         </div>
                         <button type="submit" id="sendButton" class="send-button-3d" disabled>
@@ -84,19 +82,25 @@
         </footer>
     </div>
 
-
+    <!-- For Markdown Rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- =========== NEW: FIREBASE SDK SCRIPTS =========== -->
+    <script type="module">
+      // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+      // We will initialize and use Firebase in app.js, so we just need the core import here
+    </script>
+    <!-- ================================================ -->
+
     <script src="/static/js/app.js" type="module"></script>
     <script>
-        // Vanta.js background initialization code remains the same
         document.addEventListener('DOMContentLoaded', () => {
-            const fogBackgroundElement = document.getElementById('vanta-fog-background');
-            if (fogBackgroundElement && window.VANTA && window.VANTA.FOG) {
-                VANTA.FOG({ el: fogBackgroundElement, mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200.00, minWidth: 200.00, highlightColor: 0x223355, midtoneColor: 0x112244, lowlightColor: 0x0a0f1f, baseColor: 0x0a0f1f, blurFactor: 0.6, speed: 0.3, zoom: 0.4 });
+            if (window.VANTA && window.VANTA.FOG) {
+                VANTA.FOG({ el: '#vanta-fog-background', mouseControls: true, touchControls: true, gyroControls: false, minHeight: 200.00, minWidth: 200.00, highlightColor: 0x223355, midtoneColor: 0x112244, lowlightColor: 0x0a0f1f, baseColor: 0x0a0f1f, blurFactor: 0.6, speed: 0.3, zoom: 0.4 });
             }
-            const dotsBackgroundElement = document.getElementById('threed-background');
-            if (dotsBackgroundElement && window.VANTA && window.VANTA.DOTS) {
-                VANTA.DOTS({ el: dotsBackgroundElement, mouseControls: true, touchControls: true, backgroundColor: 0x0, color: 0xffffff, color2: 0x00f2ff, size: 2.8, spacing: 30.00, showLines: false });
+            if (window.VANTA && window.VANTA.DOTS) {
+                VANTA.DOTS({ el: '#threed-background', mouseControls: true, touchControls: true, backgroundColor: 0x0, color: 0xffffff, color2: 0x00f2ff, size: 2.8, spacing: 30.00, showLines: false });
             }
         });
     </script>
