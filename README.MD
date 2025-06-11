@@ -45,6 +45,7 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
         *   **ContextualPrecomputationAgent** (`LlmAgent`): If a proactive opportunity is identified, this agent formulates suggestions and pre-fetches relevant information using tools.
         *   **ReactiveTaskDelegatorAgent** (`LlmAgent`): Handles explicit user tasks or executes actions based on accepted proactive suggestions.
         *   **PubMedRAGAgent** (`LlmAgent`): Orchestrates biomedical research by querying a local PubMed database, performing live web searches, querying the ClinicalTrials.gov API, and querying the OpenFDA API for drug adverse events. It synthesizes this information and can add new web-found articles to the local knowledge base.
+        *   **VisualizationAgent** (`LlmAgent`): Creates various data visualizations (e.g., bar charts, line graphs) using data retrieved from other agents.
 *   **Proactive Assistance:** AVA can anticipate user needs based on visual context and general queries, offering timely suggestions.
 *   **Tool Integration (MCP):** Leverages Model Context Protocol (MCP) tools for:
     *   Cocktail recipes
@@ -77,11 +78,61 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   `ContextualPrecomputationAgent`: If a proactive context is identified, this agent formulates a suggestion and can use tools (including the `GoogleSearchAgentTool` or MCP tools like CocktailDB) to pre-fetch data.
     *   `ReactiveTaskDelegatorAgent`: Handles direct user requests or tasks following an accepted proactive suggestion. It can use MCP tools or the `GoogleSearchAgentTool` as needed.
     *   `PubMedRAGAgent`: If a query is biomedical, AVA delegates to this agent. It uses sub-agents (`LocalPubMedSearchAgent`, `WebPubMedSearchAgent`, `ClinicalTrialsSearchAgent`, `OpenFDASearchAgent` running in parallel via `ResearchOrchestratorAgent`) to gather information, then synthesizes it and offers to save new web findings.
+    *   `VisualizationAgent`: If the user requests a visualization, this agent is triggered to create a chart from the provided data.
 5.  **Specialized Search Agents:**
     *   `GoogleSearchAgentTool`: An `LlmAgent` for general web searches, available as a tool.
     *   `ClinicalTrialsSearchAgent`: An `LlmAgent` for querying the live ClinicalTrials.gov API.
     *   `OpenFDASearchAgent`: An `LlmAgent` for querying the live OpenFDA API for drug adverse events.
 6.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
+
+
+## Firebase Authentication
+
+Galactic StreamHub now implements robust user authentication using Firebase, ensuring that only verified users can connect to the agent backend and interact with AVA.
+
+### Frontend (Client-Side - `static/js/app.js`)
+
+1.  **Firebase Initialization**:
+    *   The Firebase app is initialized using your project's `firebaseConfig` (ensure your actual API key and other details are securely managed, e.g., via environment variables for deployment, though the provided `app.js` has placeholders).
+2.  **Google Sign-In**:
+    *   Users can sign in using their Google accounts via a "Sign In with Google" button.
+    *   Firebase Authentication (`signInWithPopup` with `GoogleAuthProvider`) handles the OAuth flow.
+3.  **Authentication State Management**:
+    *   An `onAuthStateChanged` listener monitors the user's sign-in status.
+    *   **If Signed In**:
+        *   The user's display name and avatar are shown.
+        *   An ID token is retrieved from Firebase using `user.getIdToken(true)`. This token is a secure credential.
+        *   The WebSocket connection to the backend (`/ws`) is established, and the ID token is passed as a query parameter (`?token=<ID_TOKEN>`).
+        *   UI elements (message input, send button, audio/video controls) are enabled.
+    *   **If Signed Out**:
+        *   A login gate is displayed, prompting the user to sign in.
+        *   UI elements are disabled.
+        *   Any existing WebSocket connection is closed.
+4.  **Sign-Out**:
+    *   A "Sign Out" button allows users to end their session.
+
+### Backend (Server-Side - `main.py`)
+
+1.  **Firebase Admin SDK Initialization**:
+    *   The Firebase Admin SDK is initialized during the FastAPI application's startup (`app_lifespan`).
+    *   It uses Application Default Credentials, which is suitable for Google Cloud environments (e.g., Cloud Run, Cloud Workstations). For local development, ensure you've run `gcloud auth application-default login`.
+    *   The `projectId` is configured during initialization.
+2.  **Token Verification in WebSocket Endpoint**:
+    *   The `/ws` WebSocket endpoint now requires a `token` query parameter.
+    *   When a client attempts to connect, the backend uses `auth.verify_id_token(token)` to verify the received ID token with Firebase's authentication servers.
+    *   **If Verification Succeeds**:
+        *   The connection is accepted.
+        *   The `uid` (unique user ID) extracted from the decoded token is used as the `session_id` for the ADK agent session. This securely links the agent's activity to the authenticated user.
+    *   **If Verification Fails** (e.g., token is invalid, expired, or tampered with):
+        *   An error is logged.
+        *   The WebSocket connection is refused (closed with code 1011).
+
+### Security Benefits
+
+*   **Secure Access**: Only authenticated users can establish a WebSocket connection and interact with the agent.
+*   **User Identification**: The backend can reliably identify users based on their Firebase UID, allowing for potential future features like personalized experiences or data storage.
+*   **Standardized Authentication**: Leverages Google's robust and secure Firebase Authentication platform.
+
 
 
 ![Architecture Diagram](/assets/flowchart.jpg)
@@ -211,7 +262,7 @@ To deploy this application to Google Cloud Run:
 2.  **Set Environment Variables for Deployment:**
     In your Cloud Shell or local terminal (with `gcloud` CLI configured):
     ```bash
-    export SERVICE_NAME='galactic-streamhub' # Or your preferred service name
+    export SERVICE_NAME='galatic-streamhub' # Or your preferred service name
     export LOCATION='us-central1'         # Or your preferred region
     export PROJECT_ID='silver-455021' # Replace with your Project ID
     ```
@@ -265,6 +316,8 @@ To deploy this application to Google Cloud Run:
 ├── mcp_server/                 # Directory for local MCP server scripts
 │   ├── cocktail.py             # MCP server for cocktail recipes
 │   └── weather_server.py
+├── tools/                      # Directory for agent tools
+│   └── chart_tool.py           # Tool for creating data visualizations
 ├── requirements.txt            # Python dependencies
 └── static/                     # Frontend assets
     ├── css/
