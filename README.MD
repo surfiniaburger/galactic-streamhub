@@ -45,6 +45,7 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
         *   **ContextualPrecomputationAgent** (`LlmAgent`): If a proactive opportunity is identified, this agent formulates suggestions and pre-fetches relevant information using tools.
         *   **ReactiveTaskDelegatorAgent** (`LlmAgent`): Handles explicit user tasks or executes actions based on accepted proactive suggestions.
         *   **PubMedRAGAgent** (`LlmAgent`): Orchestrates biomedical research by querying a local PubMed database, performing live web searches, querying the ClinicalTrials.gov API, and querying the OpenFDA API for drug adverse events. It synthesizes this information and can add new web-found articles to the local knowledge base.
+        *   **VisualizationAgent** (`LlmAgent`): Creates various data visualizations (e.g., bar charts, line graphs) using data retrieved from other agents.
 *   **Proactive Assistance:** AVA can anticipate user needs based on visual context and general queries, offering timely suggestions.
 *   **Tool Integration (MCP):** Leverages Model Context Protocol (MCP) tools for:
     *   Cocktail recipes
@@ -77,6 +78,7 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   `ContextualPrecomputationAgent`: If a proactive context is identified, this agent formulates a suggestion and can use tools (including the `GoogleSearchAgentTool` or MCP tools like CocktailDB) to pre-fetch data.
     *   `ReactiveTaskDelegatorAgent`: Handles direct user requests or tasks following an accepted proactive suggestion. It can use MCP tools or the `GoogleSearchAgentTool` as needed.
     *   `PubMedRAGAgent`: If a query is biomedical, AVA delegates to this agent. It uses sub-agents (`LocalPubMedSearchAgent`, `WebPubMedSearchAgent`, `ClinicalTrialsSearchAgent`, `OpenFDASearchAgent` running in parallel via `ResearchOrchestratorAgent`) to gather information, then synthesizes it and offers to save new web findings.
+    *   `VisualizationAgent`: If the user requests a visualization, this agent is triggered to create a chart from the provided data.
 5.  **Specialized Search Agents:**
     *   `GoogleSearchAgentTool`: An `LlmAgent` for general web searches, available as a tool.
     *   `ClinicalTrialsSearchAgent`: An `LlmAgent` for querying the live ClinicalTrials.gov API.
@@ -260,7 +262,7 @@ To deploy this application to Google Cloud Run:
 2.  **Set Environment Variables for Deployment:**
     In your Cloud Shell or local terminal (with `gcloud` CLI configured):
     ```bash
-    export SERVICE_NAME='galactic-streamhub' # Or your preferred service name
+    export SERVICE_NAME='galatic-streamhub' # Or your preferred service name
     export LOCATION='us-central1'         # Or your preferred region
     export PROJECT_ID='silver-455021' # Replace with your Project ID
     ```
@@ -314,6 +316,8 @@ To deploy this application to Google Cloud Run:
 ├── mcp_server/                 # Directory for local MCP server scripts
 │   ├── cocktail.py             # MCP server for cocktail recipes
 │   └── weather_server.py
+├── tools/                      # Directory for agent tools
+│   └── chart_tool.py           # Tool for creating data visualizations
 ├── requirements.txt            # Python dependencies
 └── static/                     # Frontend assets
     ├── css/

@@ -4,6 +4,7 @@
 
 // --- Firebase Initialization ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
+import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-analytics.js";
 import { 
     getAuth, 
     onAuthStateChanged, 
@@ -24,6 +25,7 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const firebaseApp = initializeApp(firebaseConfig);
+const analytics = getAnalytics(firebaseApp);
 const auth = getAuth(firebaseApp);
 const provider = new GoogleAuthProvider();
 
@@ -38,6 +40,7 @@ let audioStream = null;
 let videoFrameInterval = null;
 const VIDEO_FRAME_INTERVAL_MS = 1000;
 const VIDEO_FRAME_QUALITY = 0.7;
+
 
 // --- DOM Elements ---
 const messageForm = document.getElementById("messageForm");
@@ -184,6 +187,8 @@ function connectWebsocket(token) {
     websocket.onopen = () => {
         console.log("Secure WebSocket connection opened.");
         appendLog("Connection established. Ready for transmission.", "system");
+         // Unlock the UI now that the connection is ready
+        setInputsLocked(false); 
         addSubmitHandler();
     };
 
@@ -271,6 +276,7 @@ function parseMarkdownToHTML(markdown) {
     
     // Line breaks
     html = html.replace(/\n/g, '<br>');
+
     
     // Clean up multiple <br> tags
     html = html.replace(/(<br>\s*){3,}/g, '<br><br>');
@@ -280,7 +286,9 @@ function parseMarkdownToHTML(markdown) {
     websocket.onclose = function () {
         console.log("WebSocket connection closed.");
         appendLog("Connection lost. Reconnecting in 5s...", "system");
-        document.getElementById("sendButton").disabled = true;
+        //document.getElementById("sendButton").disabled = true;
+         // Lock inputs while attempting to reconnect
+        setInputsLocked(true); 
         showAgentThinking(false); // Ensure thinking indicator is hidden on close
         // Clear audio timers on connection close
         if (audioSilenceTimer) {
@@ -325,6 +333,7 @@ function addSubmitHandler() {
         try {
             const messageText = messageInput.value.trim();
             if (messageText) {
+                logInteraction('text_message');
                 appendLog(messageText, "user");
                 sendMessage({ mime_type: "text/plain", data: messageText });
                 showAgentThinking(true); // Show indicator when a message is sent
@@ -364,6 +373,7 @@ import { startAudioPlayerWorklet } from "./audio-player.js";
 import { startAudioRecorderWorklet, stopMicrophone as stopAudioCapture } from "./audio-recorder.js";
 
 async function toggleAudio() {
+    logInteraction('audio_toggle');
     console.log("toggleAudio function called. is_audio_mode_active:", is_audio_mode_active);
     startAudioButton.disabled = true;
     if (!is_audio_mode_active) {
@@ -378,8 +388,13 @@ async function toggleAudio() {
             appendLog("Voice chat activated.", "system");
             if (websocket && websocket.readyState === WebSocket.OPEN && !websocket.url.includes("is_audio=true")) {
                 websocket.close();
-            } else if (!websocket || websocket.readyState !== WebSocket.OPEN) {
-                connectWebsocket();
+            } else if (!websocket || (websocket.readyState !== WebSocket.OPEN && websocket.readyState !== WebSocket.CONNECTING)) {
+            // Only connect if there isn't one already connecting
+            const user = auth.currentUser;
+            if (user) {
+                const token = await user.getIdToken();
+                connectWebsocket(token);
+            }
             }
         } catch (error) {
             console.error("Error starting audio:", error);
@@ -456,6 +471,7 @@ function arrayBufferToBase64(buffer) {
 
 // Video Handling
 async function toggleVideo() {
+    logInteraction('video_toggle');
     if (!is_video_mode_active) {
         try {
             videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
@@ -564,3 +580,13 @@ document.addEventListener('touchmove', dragMove, { passive: false }); // passive
 
 document.addEventListener('mouseup', dragEnd);
 document.addEventListener('touchend', dragEnd);
+
+// --- Analytics ---
+function logInteraction(type) {
+  if (typeof logEvent === 'function') {
+    logEvent(analytics, 'interaction', {
+      type: type,
+      user_id: auth.currentUser ? auth.currentUser.uid : 'anonymous'
+    });
+  }
+}
