@@ -176,7 +176,7 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
         logging.info("Firebase Admin SDK initialized successfully for project 'studio-l13dd'.")
 
     # Handle the specific case where credentials are not found.
-    except google_exceptions.DefaultCredentialsError:
+    except google_exceptions.DefaultCredentialsError:  # type: ignore
         logging.critical("FATAL: Could not find Application Default Credentials.")
         logging.critical("--> For local development, run 'gcloud auth application-default login'")
         logging.critical("--> For deployment, ensure the service account has the correct IAM roles.")
