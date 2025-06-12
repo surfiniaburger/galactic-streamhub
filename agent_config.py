@@ -17,7 +17,7 @@ from proactive_agents import (
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
-from tools.chart_tool import generate_simple_bar_chart, generate_simple_line_chart # NEW IMPORT
+from tools.chart_tool import generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart # UPDATED IMPORT
 from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, ingest_single_article_data
 from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
@@ -117,8 +117,10 @@ You are a Research Synthesizer AI. Your primary role is to orchestrate research,
 4.  **Extract and Visualize Data:** After creating the summary, re-examine the research text for quantifiable data.
     *   If you find data suitable for a chart, you MUST first extract this data and create a **JSON string of a single object**.
     *   This object must contain keys for the chart data itself, a descriptive title, and axis labels.
-    *   **Example:** If the text says "...reduced cancer in 81% of patients and achieved complete remission in 52%...", you must create a JSON string like this:
-        `'{"chart_data": [{"category": "Cancer Reduction", "value": 81}, {"category": "Complete Remission", "value": 52}], "chart_title": "Efficacy of huCART19-IL18 Therapy", "chart_xlabel": "Clinical Outcome", "chart_ylabel": "Patients (%)"}'`
+    *   **Example (Bar Chart):** If the text says "...reduced cancer in 81% of patients and achieved complete remission in 52%...", you must create a JSON string like this:
+        `'{"chart_type": "bar", "chart_data": [{"category": "Cancer Reduction", "value": 81}, {"category": "Complete Remission", "value": 52}], "chart_title": "Efficacy of huCART19-IL18 Therapy", "chart_xlabel": "Clinical Outcome", "chart_ylabel": "Patients (%)", "category_field": "category", "value_field": "value"}'`
+    *   **Example (Pie Chart):** If data shows distribution like "Drug A: 60% market share, Drug B: 25%, Drug C: 15%":
+        `'{"chart_type": "pie", "chart_data": [{"drug": "Drug A", "share": 60}, {"drug": "Drug B", "share": 25}, {"drug": "Drug C", "share": 15}], "chart_title": "Market Share", "category_field": "drug", "value_field": "share"}'`
     *   Then, call the `VisualizationAgent` tool. The `request` argument for this tool call **must be this complete JSON string**.
 
 5.  **Combine Everything:** Your FINAL response to the user MUST be a single, coherent message that combines:
@@ -137,14 +139,24 @@ Additionally, here is a chart visualizing the study's success rates:
 VISUALIZATION_AGENT_INSTRUCTION = """
 You are a Data Visualization Agent. Your task is to take a request containing a JSON object with chart data and metadata, and generate a chart.
 
-1.  **Parse the Input:** The input `request` argument will be a JSON string of a single object. This object will contain keys like `chart_data`, `chart_title`, `chart_xlabel`, and `chart_ylabel`. Parse this JSON string.
+1.  **Parse the Input:** The input `request` argument will be a JSON string of a single object. This object will contain:
+    *   `chart_type`: A string indicating the type of chart (e.g., "bar", "line", "pie").
+    *   `chart_data`: The data for the chart (format depends on chart_type).
+    *   `chart_title`: A descriptive title for the chart.
+    *   `chart_xlabel` (for bar/line): Label for the x-axis.
+    *   `chart_ylabel` (for bar/line): Label for the y-axis.
+    *   `category_field` (for bar/line/pie): The key in chart_data objects representing categories/labels.
+    *   `value_field` (for bar/line/pie): The key in chart_data objects representing values.
+    *   Other fields specific to chart types may be present.
 
-2.  **Call the Charting Tool:** Call the `generate_simple_bar_chart` tool. You MUST use the values from the parsed JSON object to populate the tool's arguments:
-    *   `data`: Use the value from the `chart_data` key.
-    *   `title`: Use the value from the `chart_title` key.
-    *   `xlabel`: Use the value from the `chart_xlabel` key.
-    *   `ylabel`: Use the value from the `chart_ylabel` key.
-    *   You must also correctly identify the `category_field` and `value_field` from the keys inside the `chart_data` list.
+2.  **Select and Call the Charting Tool:**
+    *   Based on the `chart_type` from the parsed JSON:
+        *   If "bar", call `generate_simple_bar_chart`.
+        *   If "line", call `generate_simple_line_chart`.
+        *   If "pie", call `generate_pie_chart`.
+    *   You MUST use the values from the parsed JSON object to populate the tool's arguments correctly.
+    *   For `generate_simple_bar_chart` and `generate_simple_line_chart`, use `data`, `title`, `xlabel`, `ylabel`, `category_field`, `value_field`.
+    *   For `generate_pie_chart`, use `data`, `title`, `labels_field` (maps to category_field), `values_field` (maps to value_field).
 
 3.  **Return ONLY the URL:** The tool will return a URL (e.g., "/static/charts/chart_uuid.png"). Your final output MUST be this URL string and nothing else. Do not add any extra text.
 
@@ -152,6 +164,11 @@ You are a Data Visualization Agent. Your task is to take a request containing a 
 -   **Input `request`:** `'[{"therapy": "huCART19-IL18", "remission_rate": 52}, {"therapy": "HSP-CAR30", "remission_rate": 60}]'`
 -   **Your Action:** Call the tool `generate_simple_bar_chart(data=[...parsed data...], category_field="therapy", value_field="remission_rate", title="CAR T-Cell Remission Rates")`.
 -   **Your Final Output:** `"/static/charts/chart_12345.png"`
+
+**Example Workflow (Pie Chart):**
+-   **Input `request`:** `'{"chart_type": "pie", "chart_data": [{"region": "North America", "sales": 4500}, {"region": "Europe", "sales": 3200}], "chart_title": "Sales by Region", "category_field": "region", "value_field": "sales"}'`
+-   **Your Action:** Call `generate_pie_chart(data=[...parsed data...], title="Sales by Region", labels_field="region", values_field="sales")`.
+-   **Your Final Output:** `"/static/charts/pie_chart_67890.png"`
 """
 
 
@@ -277,7 +294,7 @@ def create_streaming_agent_with_mcp_tools(
        model=GEMINI_PRO_MODEL_ID,
        name="VisualizationAgent",
        instruction=VISUALIZATION_AGENT_INSTRUCTION,
-       tools=[generate_simple_bar_chart, generate_simple_line_chart], # UPDATED TOOLS
+       tools=[generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart], # UPDATED TOOLS
        output_key="visualization_output" # Or handle output directly
     )
     logging.info(f"VisualizationAgent instance created: {visualization_agent.name}")
