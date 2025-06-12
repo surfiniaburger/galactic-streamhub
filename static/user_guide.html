@@ -473,6 +473,36 @@
                             <p><em>(AVA, through its orchestrator and potentially the `ReactiveTaskDelegatorAgent` or by re-invoking `ContextualPrecomputationAgent` with the new goal, might then use the `QueryPubMedKnowledgeBase` tool to find relevant immunology articles.)</em></p>
                         </li>
                     </ul>
+                    <h3>Generating Visualizations (Charts)</h3>
+                    <p>AVA, through its <code>PubMedRAGAgent</code>, can generate charts if it finds suitable quantifiable data in its research. You can guide it or ask for specific chart types:</p>
+                    <ul>
+                        <li>
+                            <p><strong>Bar Chart Example:</strong></p>
+                            <code>"Compare the reported 5-year survival rates for patients with Stage II lung cancer treated with immunotherapy versus chemotherapy. Can you visualize this comparison?"</code>
+                            <p><em>AVA should attempt to find these two data points and present them as a bar chart.</em></p>
+                        </li>
+                        <li>
+                            <p><strong>Line Chart Example:</strong></p>
+                            <code>"Show the trend of publications on CRISPR gene editing per year over the last decade and plot it."</code>
+                            <p><em>AVA should look for yearly publication counts and plot them as a line chart.</em></p>
+                        </li>
+                        <li>
+                            <p><strong>Pie Chart Example:</strong></p>
+                            <code>"What is the approximate distribution of research funding for different types of cancer (e.g., breast, lung, prostate) in the latest reported year? Can you show this as a pie chart?"</code>
+                            <p><em>AVA should try to find proportional data and display it as a pie chart.</em></p>
+                        </li>
+                        <li>
+                            <p><strong>General Visualization Request:</strong></p>
+                            <code>"Find data on the efficacy of new diabetes drugs and visualize the key findings."</code>
+                            <p><em>Here, AVA will decide on the most appropriate chart type based on the data it uncovers.</em></p>
+                        </li>
+                    </ul>
+                    <p><em>Note: The ability to generate a chart and the accuracy of the chart depend on the data found by the agent and the LLM's ability to extract and structure it correctly for visualization.</em></p>
+
+
+
+
+
                     <p><strong>Experiment!</strong> Try different combinations of visual cues and queries to see how AVA and its team of agents respond. The system is designed to be flexible and understand context.</p>
                 </section>
                 <section id="proactive-research">
