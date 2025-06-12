@@ -12,6 +12,7 @@ import {
     signInWithPopup,
     signOut
 } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
+import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app-check.js";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
@@ -25,6 +26,21 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const firebaseApp = initializeApp(firebaseConfig);
+// --- NEW: Initialize Firebase App Check with reCAPTCHA v3 ---
+try {
+    const appCheck = initializeAppCheck(firebaseApp, {
+      // IMPORTANT: Replace with your actual reCAPTCHA v3 site key
+      provider: new ReCaptchaV3Provider('6LdbRF4rAAAAADbGFZ-pasii6uWvg1Br9c-LjK0A'), 
+      
+      // Set to true to allow automatic token refresh.
+      isTokenAutoRefreshEnabled: true 
+    });
+    console.log("Firebase App Check with reCAPTCHA v3 initialized successfully.");
+  } catch (error) {
+      console.error("Error initializing Firebase App Check:", error);
+      appendLog("Security check initialization failed. Some features may not work.", "system");
+  }
+  // --- END: App Check Initialization ---
 const analytics = getAnalytics(firebaseApp);
 const auth = getAuth(firebaseApp);
 const provider = new GoogleAuthProvider();
@@ -590,3 +606,5 @@ function logInteraction(type) {
     });
   }
 }
+
+
