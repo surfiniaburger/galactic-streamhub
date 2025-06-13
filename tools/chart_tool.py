@@ -183,3 +183,92 @@ def generate_pie_chart(
     except Exception as e:
         logger.error(f"Error generating pie chart: {e}", exc_info=True)
         return None
+    
+
+
+
+# Add this new function to your tools/chart_tool.py file
+import numpy as np
+
+def generate_grouped_bar_chart(
+    data: List[Dict[str, Any]],
+    group_field: str,
+    title: Optional[str] = "Grouped Bar Chart",
+    xlabel: Optional[str] = None,
+    ylabel: Optional[str] = None
+) -> Optional[str]:
+    """
+    Generates a grouped bar chart from a list of dictionaries and saves it as a PNG.
+    Each dictionary in the list represents a main group (e.g., 'Chemotherapy').
+    The other keys in the dictionary represent the sub-bars within that group.
+
+    Args:
+        data: e.g., [{"group": "Chemo", "Stage I": 50, "Stage II": 30}, {"group": "Immuno", "Stage I": 60, "Stage II": 45}]
+        group_field: The key that identifies the main group label (e.g., "group").
+        title: The title of the chart.
+        xlabel: The label for the x-axis.
+        ylabel: The label for the y-axis.
+
+    Returns:
+        The relative web URL of the saved chart image, or None on error.
+    """
+    if not data:
+        logger.warning("No data provided for grouped bar chart generation.")
+        return None
+    try:
+        main_groups = [item.get(group_field) for item in data]
+        if any(g is None for g in main_groups):
+            logger.error(f"Missing '{group_field}' in some data items for grouped bar chart.")
+            return None
+
+        # Dynamically discover the sub-categories (the bars within each group)
+        # and collect all numeric data.
+        sub_categories = set()
+        for item in data:
+            for key in item:
+                if key != group_field and isinstance(item[key], (int, float)):
+                    sub_categories.add(key)
+        
+        sub_categories = sorted(list(sub_categories))
+        if not sub_categories:
+            logger.error("No numeric sub-categories found in the data for grouped bar chart.")
+            return None
+
+        # Prepare data for plotting
+        values_by_subcategory = {sub: [] for sub in sub_categories}
+        for group in main_groups:
+            item = next(d for d in data if d.get(group_field) == group)
+            for sub in sub_categories:
+                values_by_subcategory[sub].append(item.get(sub, 0)) # Default to 0 if sub-category is missing for a group
+
+        x = np.arange(len(main_groups))  # The label locations
+        width = 0.8 / len(sub_categories)  # The width of the bars, adjusted for number of sub-categories
+        multiplier = 0
+
+        fig, ax = plt.subplots(figsize=(12, 7))
+
+        for subcategory, values in values_by_subcategory.items():
+            offset = width * multiplier
+            rects = ax.bar(x + offset, values, width, label=subcategory)
+            ax.bar_label(rects, padding=3, fmt='%.1f')
+            multiplier += 1
+
+        # Add some text for labels, title and axes ticks
+        ax.set_ylabel(ylabel or "Values")
+        ax.set_xlabel(xlabel or group_field)
+        ax.set_title(title or "Grouped Bar Chart")
+        ax.set_xticks(x + width * (len(sub_categories) - 1) / 2, main_groups)
+        ax.legend(loc='upper left', ncols=len(sub_categories))
+        ax.margins(y=0.1) # Add some margin to the top
+        plt.tight_layout()
+
+        filename = f"chart_{uuid.uuid4().hex}.png"
+        filepath = os.path.join(STATIC_CHARTS_DIR, filename)
+        plt.savefig(filepath)
+        plt.close()
+        logger.info(f"Grouped bar chart saved to {filepath}")
+        return f"/{filepath.replace(os.sep, '/')}"
+
+    except Exception as e:
+        logger.error(f"Error generating grouped bar chart: {e}", exc_info=True)
+        return None

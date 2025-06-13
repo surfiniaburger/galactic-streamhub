@@ -208,97 +208,260 @@ function connectWebsocket(token) {
         addSubmitHandler();
     };
 
-    websocket.onmessage = function (event) {
-        try {
-            const message_from_server = JSON.parse(event.data);
-            console.log("[AGENT TO CLIENT] ", message_from_server);
-            console.log("message_from_server.turn_complete:", message_from_server.turn_complete);
-    
-            if (message_from_server.turn_complete) {
-                currentMessageId = null;
-                showAgentThinking(false); // Hide loading indicator
-                return;
-            }
-    
-            if (message_from_server.mime_type === "audio/pcm" && audioPlayerNode) {
-                // Hide thinking indicator when audio response starts
-                if (isProcessingAudioResponse) {
-                    showAgentThinking(false);
-                    isProcessingAudioResponse = false;
-                }
-                audioPlayerNode.port.postMessage(base64ToArray(message_from_server.data));
-            } else if (message_from_server.mime_type === "text/plain") {
-                // Hide loading indicator when first text response arrives
-                if (loadingIndicatorId) {
-                    showAgentThinking(false);
-                }
-                
-                const textData = message_from_server.data;
-                let messageElem = document.getElementById(currentMessageId);
-    
-                if (!messageElem) {
-                    currentMessageId = "msg_" + Math.random().toString(36).substring(7);
-                    messageElem = document.createElement("div");
-                    messageElem.id = currentMessageId;
-                    messageElem.classList.add("message", "remote");
-                    messagesDiv.appendChild(messageElem);
-                }
-    
-                const imageUrlRegex = /(\/static\/charts\/[a-zA-Z0-9_-]+\.png)/g;
-                let existingText = messageElem.textContent || '';
-                let newContent = existingText + textData;
-                
-                // Convert markdown to HTML
-                const htmlContent = parseMarkdownToHTML(newContent);
-                
-                // Handle image URLs
-                const finalContent = htmlContent.replace(
-                    imageUrlRegex,
-                    '<br><img src="$1" alt="Generated Chart" style="max-width: 100%; display: block; margin: 10px 0; border: 1px solid #ccc; border-radius: 8px;"><br>'
-                );
-                
-                messageElem.innerHTML = finalContent;
-                messagesDiv.scrollTop = messagesDiv.scrollHeight;
-            }
-        } catch (error) {
-            console.error("Error in websocket.onmessage:", error);
-        }
-    }    
+// Enhanced WebSocket message handler with better presentation
+websocket.onmessage = function (event) {
+    try {
+        const message_from_server = JSON.parse(event.data);
+        console.log("[AGENT TO CLIENT] ", message_from_server);
+        console.log("message_from_server.turn_complete:", message_from_server.turn_complete);
 
-    // Simple markdown to HTML parser function
-function parseMarkdownToHTML(markdown) {
+        if (message_from_server.turn_complete) {
+            currentMessageId = null;
+            showAgentThinking(false);
+            // Finalize the message presentation when turn is complete
+            if (currentMessageId) {
+                finalizeMessagePresentation(currentMessageId);
+            }
+            return;
+        }
+
+        if (message_from_server.mime_type === "audio/pcm" && audioPlayerNode) {
+            if (isProcessingAudioResponse) {
+                showAgentThinking(false);
+                isProcessingAudioResponse = false;
+            }
+            audioPlayerNode.port.postMessage(base64ToArray(message_from_server.data));
+        } else if (message_from_server.mime_type === "text/plain") {
+            if (loadingIndicatorId) {
+                showAgentThinking(false);
+            }
+            
+            handleTextMessage(message_from_server.data);
+        }
+    } catch (error) {
+        console.error("Error in websocket.onmessage:", error);
+    }
+}
+
+// Enhanced text message handler
+function handleTextMessage(textData) {
+    let messageElem = document.getElementById(currentMessageId);
+
+    if (!messageElem) {
+        currentMessageId = "msg_" + Math.random().toString(36).substring(7);
+        messageElem = document.createElement("div");
+        messageElem.id = currentMessageId;
+        messageElem.classList.add("message", "remote");
+        messagesDiv.appendChild(messageElem);
+    }
+
+    // Accumulate the full text content
+    if (!messageElem.dataset.fullText) {
+        messageElem.dataset.fullText = '';
+    }
+    messageElem.dataset.fullText += textData;
+    
+    // Use enhanced rendering for the accumulated content
+    renderEnhancedMessage(messageElem, messageElem.dataset.fullText);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Enhanced message rendering with better structure
+function renderEnhancedMessage(messageElem, fullText) {
+    // Create a structured presentation
+    const content = parseStructuredContent(fullText);
+    messageElem.innerHTML = createPresentationCard(content);
+}
+
+// Parse content into structured sections
+function parseStructuredContent(text) {
+    const sections = [];
+    let currentSection = { type: 'text', content: '' };
+    
+    const lines = text.split('\n');
+    let inInsight = false;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // Detect image URLs
+        const imageMatch = line.match(/^\[?(\/static\/charts\/[a-zA-Z0-9_-]+\.png)\]?$/);
+        if (imageMatch) {
+            // Finalize current section
+            if (currentSection.content.trim()) {
+                sections.push({ ...currentSection });
+            }
+            
+            // Add image section
+            sections.push({
+                type: 'image',
+                src: imageMatch[1],
+                alt: 'Generated Chart'
+            });
+            
+            currentSection = { type: 'text', content: '' };
+            continue;
+        }
+        
+        // Detect insight section
+        if (line.startsWith('**Generated Insight')) {
+            if (currentSection.content.trim()) {
+                sections.push({ ...currentSection });
+            }
+            currentSection = { type: 'insight', content: line };
+            inInsight = true;
+            continue;
+        }
+        
+        // Handle questions
+        if (line.includes('Would you like to save') || line.includes('?')) {
+            if (currentSection.content.trim()) {
+                sections.push({ ...currentSection });
+            }
+            sections.push({
+                type: 'question',
+                content: line
+            });
+            currentSection = { type: 'text', content: '' };
+            continue;
+        }
+        
+        // Regular content
+        if (line) {
+            currentSection.content += (currentSection.content ? '\n' : '') + line;
+        } else if (currentSection.content.trim()) {
+            // Empty line - might be paragraph break
+            currentSection.content += '\n\n';
+        }
+    }
+    
+    // Add final section
+    if (currentSection.content.trim()) {
+        sections.push(currentSection);
+    }
+    
+    return sections;
+}
+
+// Create presentation card HTML
+function createPresentationCard(sections) {
+    let html = '<div class="response-card">';
+    
+    sections.forEach((section, index) => {
+        switch (section.type) {
+            case 'text':
+                html += `<div class="content-section">
+                    ${parseAdvancedMarkdown(section.content)}
+                </div>`;
+                break;
+                
+            case 'image':
+                html += `<div class="chart-section">
+                    <div class="chart-container">
+                        <img src="${section.src}" alt="${section.alt}" class="response-chart" loading="lazy">
+                    </div>
+                </div>`;
+                break;
+                
+            case 'insight':
+                html += `<div class="insight-section">
+                    <div class="insight-header">
+                        <span class="insight-icon">💡</span>
+                        <span class="insight-title">Key Insights</span>
+                    </div>
+                    <div class="insight-content">
+                        ${parseAdvancedMarkdown(section.content)}
+                    </div>
+                </div>`;
+                break;
+                
+            case 'question':
+                html += `<div class="question-section">
+                    <div class="question-content">
+                        ${parseAdvancedMarkdown(section.content)}
+                    </div>
+                    <div class="question-actions">
+                        <button class="action-btn primary">Yes, Save Articles</button>
+                        <button class="action-btn secondary">Not Now</button>
+                    </div>
+                </div>`;
+                break;
+        }
+    });
+    
+    html += '</div>';
+    return html;
+}
+
+// Advanced markdown parser with better formatting
+function parseAdvancedMarkdown(markdown) {
     let html = markdown;
     
-    // Headers
-    html = html.replace(/^### (.*$)/gm, '<h3>$1</h3>');
-    html = html.replace(/^## (.*$)/gm, '<h2>$1</h2>');
-    html = html.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+    // Handle bold text with ** or __
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="highlight-text">$1</strong>');
+    html = html.replace(/__(.*?)__/g, '<strong class="highlight-text">$1</strong>');
     
-    // Bold
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    // Italic
+    // Handle italic text
     html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    html = html.replace(/_(.*?)_/g, '<em>$1</em>');
     
-    // Code blocks
-    html = html.replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    // Handle code blocks
+    html = html.replace(/```([\s\S]*?)```/g, '<pre class="code-block"><code>$1</code></pre>');
+    html = html.replace(/`(.*?)`/g, '<code class="inline-code">$1</code>');
     
-    // Inline code
-    html = html.replace(/`(.*?)`/g, '<code>$1</code>');
+    // Handle headers
+    html = html.replace(/^### (.*$)/gm, '<h3 class="section-header">$1</h3>');
+    html = html.replace(/^## (.*$)/gm, '<h2 class="section-title">$1</h2>');
+    html = html.replace(/^# (.*$)/gm, '<h1 class="main-title">$1</h1>');
     
-    // Unordered lists
+    // Handle lists
     html = html.replace(/^\* (.*$)/gm, '<li>$1</li>');
-    html = html.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    html = html.replace(/^\- (.*$)/gm, '<li>$1</li>');
+    html = html.replace(/^(\d+)\. (.*$)/gm, '<li class="numbered">$2</li>');
     
-    // Line breaks
-    html = html.replace(/\n/g, '<br>');
-
+    // Wrap consecutive list items
+    html = html.replace(/(<li>.*<\/li>)/gs, '<ul class="formatted-list">$1</ul>');
+    html = html.replace(/(<li class="numbered">.*<\/li>)/gs, '<ol class="numbered-list">$1</ol>');
     
-    // Clean up multiple <br> tags
-    html = html.replace(/(<br>\s*){3,}/g, '<br><br>');
+    // Handle paragraphs (double line breaks)
+    const paragraphs = html.split('\n\n');
+    html = paragraphs.map(p => {
+        p = p.trim();
+        if (p && !p.startsWith('<')) {
+            return `<p class="content-paragraph">${p.replace(/\n/g, '<br>')}</p>`;
+        }
+        return p;
+    }).join('\n');
+    
+    // Clean up extra line breaks
+    html = html.replace(/\n/g, ' ');
+    html = html.replace(/\s+/g, ' ');
     
     return html;
 }
+
+// Finalize message presentation (called when turn is complete)
+function finalizeMessagePresentation(messageId) {
+    const messageElem = document.getElementById(messageId);
+    if (!messageElem) return;
+    
+    // Add final styling and animations
+    messageElem.classList.add('message-complete');
+    
+
+}
+
+// Handle question responses
+function handleQuestionResponse(saveArticles) {
+    const response = saveArticles ? 'yes' : 'no';
+    sendMessage({ 
+        mime_type: "text/plain", 
+        data: `Save articles: ${response}` 
+    });
+    
+    console.log(`User response: ${saveArticles ? 'Save articles' : 'Skip saving'}`);
+}
+
     websocket.onclose = function () {
         console.log("WebSocket connection closed.");
         appendLog("Connection lost. Reconnecting in 5s...", "system");
