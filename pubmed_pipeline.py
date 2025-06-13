@@ -443,6 +443,97 @@ def ingest_single_article_data(
         if mongo_client:
             mongo_client.close()
 
+
+
+def get_publication_trend(topic: str, years: int = 10) -> Dict[str, Any]:
+    """
+    Performs an analytical query on the PubMed collection to find the number of publications
+    on a specific topic per year for the last few years. This tool is for generating
+    time-series data for charts.
+
+    Args:
+        topic (str): The research topic to search for (e.g., "CRISPR gene editing").
+        years (int): The number of years to look back. Defaults to 10.
+
+    Returns:
+        Dict[str, Any]: A dictionary containing data ready for charting, including title and labels.
+                         e.g., {"chart_type": "line", "chart_data": [...], "chart_title": "..."}
+    """
+    logger.info(f"Getting publication trend for topic: '{topic}' over the last {years} years.")
+    mongo_client = None
+    try:
+        mongo_client = connect_to_mongodb()
+        db = mongo_client[MONGODB_DATABASE_NAME]
+        collection = db["pubmed_articles"] # Target the pubmed_articles collection
+
+        current_year = datetime.now().year
+        start_year = current_year - years
+
+        # MongoDB Aggregation Pipeline
+        pipeline = [
+            {
+                # 1. Perform a text search to find relevant articles
+                '$search': {
+                    'index': 'default', # Assumes a default Atlas Search index on the text fields
+                    'text': {
+                        'query': topic,
+                        'path': ['title', 'abstract'] # Search in title and abstract
+                    }
+                }
+            },
+            {
+                # 2. Filter for documents that have a valid publication year within the range
+                '$match': {
+                    'publication_year': {'$gte': start_year}
+                }
+            },
+            {
+                # 3. Group by publication year and count the documents in each group
+                '$group': {
+                    '_id': '$publication_year',
+                    'count': {'$sum': 1}
+                }
+            },
+            {
+                # 4. Sort by year
+                '$sort': {
+                    '_id': 1
+                }
+            },
+            {
+                # 5. Format the output for the charting tool
+                '$project': {
+                    '_id': 0,
+                    'year': '$_id',
+                    'publications': '$count'
+                }
+            }
+        ]
+        
+        results = list(collection.aggregate(pipeline))
+        logger.info(f"Found trend data: {results}")
+
+        if not results:
+            return {"chart_data": [], "chart_title": f"No publication trend data found for '{topic}'"}
+
+        chart_payload = {
+            "chart_type": "line",
+            "chart_data": results,
+            "chart_title": f"Publication Trend for '{topic}'",
+            "chart_xlabel": "Year",
+            "chart_ylabel": "Number of Publications",
+            "category_field": "year",
+            "value_field": "publications"
+        }
+        return chart_payload
+
+    except Exception as e:
+        logger.error(f"Error getting publication trend: {e}", exc_info=True)
+        return {"chart_data": [], "chart_title": f"Error fetching data for '{topic}'"}
+    finally:
+        if mongo_client:
+            mongo_client.close()
+
 # --- Main Ingestion Pipeline ---
 def run_ingestion_pipeline():
     """Runs the full data ingestion pipeline for PubMed data."""

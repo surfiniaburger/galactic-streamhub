@@ -7,6 +7,9 @@ from google.adk.agents import BaseAgent, LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset # For type hinting if needed
+from tools.tts_tool import synthesize_speech_segment # NEW IMPORT
+from google.adk.tools.agent_tool import AgentTool
+
 
 # Model IDs (can be centralized or passed during instantiation)
 GEMINI_FLASH_MODEL_ID = "gemini-2.0-flash"
@@ -293,3 +296,92 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
             logging.info(f"[{self.name}] Reactive task delegation completed.")
         
         logging.info(f"[{self.name}] Orchestrator finished.")
+
+
+
+# --- Instruction for DialogueFormatterAgent ---
+DIALOGUE_FORMATTER_INSTRUCTION = """
+You are a scriptwriter. Your task is to take a single block of input text (a summary or report) and reformat it into a dialogue script for two speakers: PERSON_A and PERSON_B.
+Alternate between PERSON_A and PERSON_B for each line or logical segment of the text.
+Ensure the dialogue flows naturally and covers all the information in the original text.
+Output the result as a JSON list of objects, where each object has a "speaker" (either "PERSON_A" or "PERSON_B") and a "line" (the text for that speaker).
+
+Example Input Text:
+"The study found a 25% improvement in patient outcomes with the new drug. Side effects were minimal, primarily mild nausea reported in 5% of subjects. Further research is recommended over a longer period."
+
+Example JSON Output:
+[
+  {"speaker": "PERSON_A", "line": "The study found a 25% improvement in patient outcomes with the new drug."},
+  {"speaker": "PERSON_B", "line": "Side effects were minimal, primarily mild nausea reported in 5% of subjects."},
+  {"speaker": "PERSON_A", "line": "Further research is recommended over a longer period."}
+]
+
+If the input text is very short (e.g., one sentence), assign it all to PERSON_A.
+"""
+
+# --- Define DialogueFormatterAgent ---
+class DialogueFormatterAgent(LlmAgent):
+    def __init__(self, model: str = GEMINI_FLASH_MODEL_ID, **kwargs):
+        super().__init__(
+            model=model,
+            name="DialogueFormatterAgent",
+            instruction=DIALOGUE_FORMATTER_INSTRUCTION,
+            description="Reformats a block of text into a two-speaker dialogue script (JSON).",
+            output_key="dialogue_script_json", # Agent will write its JSON output here
+            **kwargs
+        )
+
+# --- Instruction for VideoReportAgent ---
+VIDEO_REPORT_AGENT_INSTRUCTION = """
+You are a Video Report Producer. Your goal is to create a video summary based on a textual report and associated chart image URLs.
+
+Your workflow is as follows:
+1.  **Receive Input**: You will get the main `report_text` and a list of `chart_image_urls` from session state.
+2.  **Format Dialogue**:
+    *   Call the `DialogueFormatterAgent` tool with the `report_text` to convert it into a two-speaker dialogue script (JSON).
+3.  **Synthesize Speech**:
+    *   Parse the JSON dialogue script.
+    *   For each line in the script:
+        *   Call the `synthesize_speech_segment` tool, providing the `text_to_synthesize` (the line) and the `speaker` ("PERSON_A" or "PERSON_B").
+        *   The `synthesize_speech_segment` tool will return audio bytes. You need to collect these audio bytes for each segment.
+4.  **Assemble Video (Conceptual - Tool to be added later)**:
+    *   Once all audio segments are synthesized, you would ideally call a `VideoAssemblyTool`.
+    *   This tool would take the list of audio segment bytes and the `chart_image_urls`.
+    *   It would combine them into a video (e.g., slideshow of charts with voiceover).
+    *   For now, since `VideoAssemblyTool` is not yet implemented, your final output will be a message stating that audio has been synthesized and listing the chart URLs that *would* be in the video.
+    *   Also, store the collected audio segment bytes in session state under a key like `ctx.session.state['generated_audio_segments_bytes']` (list of bytes).
+
+**Output**:
+*   If successful up to audio synthesis: A message like "Audio for the report has been synthesized. The video would include the following charts: [list of chart URLs]. The audio segments are ready for video assembly."
+*   If dialogue formatting or TTS fails: Report the error.
+
+**Example of how you'd call `synthesize_speech_segment` (conceptual for your internal plan):**
+`synthesize_speech_segment(text_to_synthesize="The study showed great results.", speaker="PERSON_A")`
+`synthesize_speech_segment(text_to_synthesize="Indeed, the outcomes were positive.", speaker="PERSON_B")`
+"""
+
+# --- Define VideoReportAgent ---
+class VideoReportAgent(LlmAgent):
+    def __init__(self, model: str = GEMINI_FLASH_MODEL_ID, **kwargs):
+        # The tools this agent will call:
+        dialogue_formatter_agent_instance = DialogueFormatterAgent(model=model) # Create an instance
+        dialogue_formatter_tool = AgentTool(agent=dialogue_formatter_agent_instance)
+        # Patch AgentTool if needed (as per your existing pattern)
+        if hasattr(dialogue_formatter_tool, 'run_async') and callable(getattr(dialogue_formatter_tool, 'run_async')):
+            dialogue_formatter_tool.func = dialogue_formatter_tool.run_async # type: ignore
+
+        agent_tools = [
+            dialogue_formatter_tool,
+            synthesize_speech_segment # ADK will wrap this Python function as a FunctionTool
+            # VideoAssemblyTool will be added here later
+        ]
+
+        super().__init__(
+            model=model,
+            name="VideoReportAgent",
+            instruction=VIDEO_REPORT_AGENT_INSTRUCTION,
+            description="Produces a video summary report with dialogue and charts.",
+            tools=agent_tools,
+            # output_key="video_report_status" # Or let it output text directly
+            **kwargs
+        )
