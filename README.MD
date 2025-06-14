@@ -210,6 +210,8 @@ cd [galactic-streamhub]
     ```bash
     uv run uvicorn main:app --reload
     ```
+
+    Synthesize the latest research on the diagnosis and treatment of non-small cell lung cancer. Find connections to ongoing clinical trials and show me a visual example of a lung nodule from a CT scan.
     The application will typically be available at `http://127.0.0.1:8000`.
 
 3.  **Access the Web Interface:**

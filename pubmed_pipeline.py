@@ -289,75 +289,111 @@ def create_mongodb_vector_index(mongo_client: MongoClient):
     except Exception as e:
         logger.error(f"Error creating MongoDB vector index: {e}", exc_info=True)
 
-# --- RAG Query Function ---
-def query_pubmed_articles(query_text: str, limit: int = 5) -> List[PubMedArticle]:
-    """
-    Queries a specialized knowledge base of PubMed scientific abstracts for information
-    related to biomedical research questions and returns the most relevant articles.
+MONGODB_SEARCH_INDEX_NAME = "default" 
 
-    Args:
-        query_text (str): The user's biomedical question or search query.
-        limit (int, optional): The maximum number of articles to return. Defaults to 5.
-
-    Returns:
-        List[PubMedArticle]: A list of PubMedArticle objects, where each object
-                             represents a retrieved PubMed article.
-                             Returns an empty list if no relevant articles are found or an error occurs.
+# --- Reconstructed Analytical Query Function ---
+def get_publication_trend(topic: str, years: int = 15) -> Dict[str, Any]:
     """
-    mongo_client = None
-    results_to_return: List[PubMedArticle] = []
+    Fixed version that handles the publication_year = 0 issue
+    """
+    logging.info(f"Getting publication trend for topic: '{topic}' over the last {years} years.")
+    mongo_client = connect_to_mongodb()
+    if not mongo_client:
+        return {"chart_data": [], "chart_title": "Failed to connect to DB"}
 
     try:
-        mongo_client = connect_to_mongodb()
         db = mongo_client[MONGODB_DATABASE_NAME]
         collection = db[MONGODB_COLLECTION_NAME]
+        current_year = datetime.now().year
+        start_year = current_year - years
 
-        query_embedding_response = embedding_model.get_embeddings([query_text])
-        if not query_embedding_response:
-             logger.error(f"Embedding model returned no response for query: '{query_text}'")
-             return []
-        query_embedding = query_embedding_response[0].values
-
-        pipeline = [
+        # SOLUTION 1: Use ingestion date instead of publication year for trend analysis
+        pipeline_with_ingestion_date = [
             {
-                "$vectorSearch": {
-                    "index": MONGODB_VECTOR_INDEX_NAME,
-                    "path": "embedding",
-                    "queryVector": query_embedding,
-                    "numCandidates": 100, # Number of candidates to consider
-                    "limit": limit,
+                '$search': {
+                    'index': 'default',
+                    'text': {
+                        'query': topic,
+                        'path': {
+                            'wildcard': '*'
+                        }
+                    }
                 }
             },
             {
-                "$project": {
-                    "_id": 0, # Exclude MongoDB's default _id
-                    "article_id": 1,
-                    "title": 1,
-                    "abstract": 1,
-                    "authors": 1,
-                    "journal": 1,
-                    "source_url": 1,
-                    "publication_year": 1,
-                    #"rich_text_for_embedding": 1, # For context if needed
-                    "score": {"$meta": "vectorSearchScore"},
+                '$addFields': {
+                    'ingestion_year': {'$year': '$ingested_at'}
                 }
-            }
+            },
+            {
+                '$match': {
+                    'ingestion_year': {'$gte': start_year}
+                }
+            },
+            {'$group': {'_id': '$ingestion_year', 'count': {'$sum': 1}}},
+            {'$sort': {'_id': 1}},
+            {'$project': {'_id': 0, 'year': '$_id', 'publications': '$count'}}
         ]
-        results = list(collection.aggregate(pipeline))
-        logger.info(f"Found {len(results)} articles for query: '{query_text[:50]}...'")
-        for res_dict in results:
-            try:
-                article = PubMedArticle(**res_dict)
-                results_to_return.append(article)
-            except Exception as e_pydantic:
-                logger.error(f"Pydantic validation error for article data {res_dict}: {e_pydantic}")
-        return results_to_return
+        
+        results = list(collection.aggregate(pipeline_with_ingestion_date))
+        logging.info(f"Found trend data using ingestion date: {results}")
+
+        if not results:
+            # SOLUTION 2: Show all results without year filtering
+            logging.info("No results with ingestion date filtering, showing total count by topic")
+            
+            count_pipeline = [
+                {
+                    '$search': {
+                        'index': 'default',
+                        'text': {
+                            'query': topic,
+                            'path': {
+                                'wildcard': '*'
+                            }
+                        }
+                    }
+                },
+                {'$count': 'total'}
+            ]
+            
+            count_result = list(collection.aggregate(count_pipeline))
+            if count_result:
+                # Return a simple chart showing the total count for the current year
+                results = [{"year": current_year, "publications": count_result[0]['total']}]
+                chart_payload = {
+                    "chart_type": "bar",
+                    "chart_data": results,
+                    "chart_title": f"Articles Found for '{topic}' (Total: {count_result[0]['total']})",
+                    "chart_xlabel": "Year",
+                    "chart_ylabel": "Number of Publications",
+                    "category_field": "year",
+                    "value_field": "publications"
+                }
+                return chart_payload
+
+        if not results:
+            return {"chart_data": [], "chart_title": f"No publication trend data found for '{topic}'"}
+
+        chart_payload = {
+            "chart_type": "line",
+            "chart_data": results,
+            "chart_title": f"Publication Trend for '{topic}' (by Ingestion Date)",
+            "chart_xlabel": "Year",
+            "chart_ylabel": "Number of Publications",
+            "category_field": "year",
+            "value_field": "publications"
+        }
+        return chart_payload
+
     except Exception as e:
-        logger.error(f"Error querying PubMed articles from MongoDB: {e}", exc_info=True)
-        return []
+        logging.error(f"Error getting publication trend: {e}", exc_info=True)
+        return {"chart_data": [], "chart_title": f"Error fetching data for '{topic}': {str(e)}"}
     finally:
         if mongo_client:
             mongo_client.close()
+
+
 
 # --- Function to Ingest a Single New Article (e.g., from web search) ---
 def ingest_single_article_data(
@@ -445,91 +481,73 @@ def ingest_single_article_data(
 
 
 
-def get_publication_trend(topic: str, years: int = 10) -> Dict[str, Any]:
+
+# --- RAG Query Function ---
+def query_pubmed_articles(query_text: str, limit: int = 5) -> List[PubMedArticle]:
     """
-    Performs an analytical query on the PubMed collection to find the number of publications
-    on a specific topic per year for the last few years. This tool is for generating
-    time-series data for charts.
+    Queries a specialized knowledge base of PubMed scientific abstracts for information
+    related to biomedical research questions and returns the most relevant articles.
 
     Args:
-        topic (str): The research topic to search for (e.g., "CRISPR gene editing").
-        years (int): The number of years to look back. Defaults to 10.
+        query_text (str): The user's biomedical question or search query.
+        limit (int, optional): The maximum number of articles to return. Defaults to 5.
 
     Returns:
-        Dict[str, Any]: A dictionary containing data ready for charting, including title and labels.
-                         e.g., {"chart_type": "line", "chart_data": [...], "chart_title": "..."}
+        List[PubMedArticle]: A list of PubMedArticle objects, where each object
+                             represents a retrieved PubMed article.
+                             Returns an empty list if no relevant articles are found or an error occurs.
     """
-    logger.info(f"Getting publication trend for topic: '{topic}' over the last {years} years.")
     mongo_client = None
+    results_to_return: List[PubMedArticle] = []
+
     try:
         mongo_client = connect_to_mongodb()
         db = mongo_client[MONGODB_DATABASE_NAME]
-        collection = db["pubmed_articles"] # Target the pubmed_articles collection
+        collection = db[MONGODB_COLLECTION_NAME]
 
-        current_year = datetime.now().year
-        start_year = current_year - years
+        query_embedding_response = embedding_model.get_embeddings([query_text])
+        if not query_embedding_response:
+             logger.error(f"Embedding model returned no response for query: '{query_text}'")
+             return []
+        query_embedding = query_embedding_response[0].values
 
-        # MongoDB Aggregation Pipeline
         pipeline = [
             {
-                # 1. Perform a text search to find relevant articles
-                '$search': {
-                    'index': 'default', # Assumes a default Atlas Search index on the text fields
-                    'text': {
-                        'query': topic,
-                        'path': ['title', 'abstract'] # Search in title and abstract
-                    }
+                "$vectorSearch": {
+                    "index": MONGODB_VECTOR_INDEX_NAME,
+                    "path": "embedding",
+                    "queryVector": query_embedding,
+                    "numCandidates": 100, # Number of candidates to consider
+                    "limit": limit,
                 }
             },
             {
-                # 2. Filter for documents that have a valid publication year within the range
-                '$match': {
-                    'publication_year': {'$gte': start_year}
-                }
-            },
-            {
-                # 3. Group by publication year and count the documents in each group
-                '$group': {
-                    '_id': '$publication_year',
-                    'count': {'$sum': 1}
-                }
-            },
-            {
-                # 4. Sort by year
-                '$sort': {
-                    '_id': 1
-                }
-            },
-            {
-                # 5. Format the output for the charting tool
-                '$project': {
-                    '_id': 0,
-                    'year': '$_id',
-                    'publications': '$count'
+                "$project": {
+                    "_id": 0, # Exclude MongoDB's default _id
+                    "article_id": 1,
+                    "title": 1,
+                    "abstract": 1,
+                    "authors": 1,
+                    "journal": 1,
+                    "source_url": 1,
+                    "publication_year": 1,
+                    #"rich_text_for_embedding": 1, # For context if needed
+                    "score": {"$meta": "vectorSearchScore"},
                 }
             }
         ]
-        
         results = list(collection.aggregate(pipeline))
-        logger.info(f"Found trend data: {results}")
-
-        if not results:
-            return {"chart_data": [], "chart_title": f"No publication trend data found for '{topic}'"}
-
-        chart_payload = {
-            "chart_type": "line",
-            "chart_data": results,
-            "chart_title": f"Publication Trend for '{topic}'",
-            "chart_xlabel": "Year",
-            "chart_ylabel": "Number of Publications",
-            "category_field": "year",
-            "value_field": "publications"
-        }
-        return chart_payload
-
+        logger.info(f"Found {len(results)} articles for query: '{query_text[:50]}...'")
+        for res_dict in results:
+            try:
+                article = PubMedArticle(**res_dict)
+                results_to_return.append(article)
+            except Exception as e_pydantic:
+                logger.error(f"Pydantic validation error for article data {res_dict}: {e_pydantic}")
+        return results_to_return
     except Exception as e:
-        logger.error(f"Error getting publication trend: {e}", exc_info=True)
-        return {"chart_data": [], "chart_title": f"Error fetching data for '{topic}'"}
+        logger.error(f"Error querying PubMed articles from MongoDB: {e}", exc_info=True)
+        return []
     finally:
         if mongo_client:
             mongo_client.close()
@@ -538,6 +556,7 @@ def get_publication_trend(topic: str, years: int = 10) -> Dict[str, Any]:
 def run_ingestion_pipeline():
     """Runs the full data ingestion pipeline for PubMed data."""
     logger.info("Starting PubMed data ingestion pipeline...")
+    print("Starting PubMed data ingestion pipeline...")
     
     # 1. Ensure BigQuery table exists
     create_bq_pubmed_table_if_not_exists()
@@ -579,6 +598,81 @@ def run_ingestion_pipeline():
             
     logger.info("PubMed data ingestion pipeline completed.")
 
+
+
+# Debug version of your get_publication_trend function with additional logging and checks
+
+import logging
+from datetime import datetime
+from typing import Dict, Any
+from pymongo import MongoClient
+
+def fix_publication_years_from_abstracts():
+    """
+    One-time function to extract years from abstracts and update the publication_year field
+    """
+    import re
+    
+    mongo_client = connect_to_mongodb()
+    if not mongo_client:
+        return
+    
+    try:
+        db = mongo_client[MONGODB_DATABASE_NAME]
+        collection = db[MONGODB_COLLECTION_NAME]
+        
+        # Find documents with publication_year = 0
+        docs_to_fix = collection.find({"publication_year": 0})
+        updated_count = 0
+        
+        for doc in docs_to_fix:
+            # Try to extract year from abstract or title
+            text_to_search = f"{doc.get('title', '')} {doc.get('abstract', '')}"
+            
+            # Look for 4-digit years
+            year_matches = re.findall(r'\b(19|20)\d{2}\b', text_to_search)
+            if year_matches:
+                # Take the most recent reasonable year
+                current_year = datetime.now().year
+                years = [int(y) for y in year_matches if 1980 <= int(y) <= current_year]
+                if years:
+                    extracted_year = max(years)  # Use the most recent year found
+                    
+                    # Update the document
+                    collection.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"publication_year": extracted_year}}
+                    )
+                    updated_count += 1
+                    
+                    if updated_count % 50 == 0:
+                        logging.info(f"Updated {updated_count} documents so far...")
+        
+        logging.info(f"Successfully updated publication_year for {updated_count} documents")
+        
+    except Exception as e:
+        logging.error(f"Error fixing publication years: {e}", exc_info=True)
+    finally:
+        if mongo_client:
+            mongo_client.close()
+
+# QUICK TEST FUNCTION
+def test_fixed_query():
+    """Test the fixed query function"""
+    print("\n=== Testing Fixed Query ===")
+    result = get_publication_trend("lung cancer", years=5)
+    
+    if result and result.get("chart_data"):
+        print("SUCCESS! Fixed query returned data:")
+        print(json.dumps(result, indent=2))
+    else:
+        print("Fixed query result:", result)
+        
+    return result
+# Usage:
+# Replace your existing get_publication_trend call with:
+# run_full_diagnostics()
+
 if __name__ == "__main__":
     # To run the ingestion:
     # Ensure GOOGLE_APPLICATION_CREDENTIALS is set for GCP auth.
@@ -588,16 +682,8 @@ if __name__ == "__main__":
     # run_ingestion_pipeline()
 
     # Example query after ingestion:
-    test_query = "What are the latest treatments for Alzheimer's disease based on clinical trials?"
-    results = query_pubmed_articles(test_query, limit=3)
-    # print(f"\n--- Query Results for: '{test_query}' ---")
-    if results:
-        for res in results:
-            # Pydantic models are iterated directly
-            print(f"Title: {res.title}\nScore: {res.score}\nAbstract: {res.abstract[:200] if res.abstract else ''}...\n---")
-    else:
-         print(f"No results found for query: {test_query}")
-    
+
+    get_publication_trend("lung cancer", years=5)
     # Example of ingesting a single new article (for testing the new function)
     # new_article_ingestion_result = ingest_single_article_data(
     #     title="A Fictional Breakthrough in AI Wellness",

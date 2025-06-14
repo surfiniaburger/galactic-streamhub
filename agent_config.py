@@ -25,7 +25,7 @@ from pubmed_pipeline import ingest_single_article_data as ingest_pubmed_article
 from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
 from google.adk.agents import SequentialAgent
 from ingest_clinical_trials import query_clinical_trials_from_mongodb, ingest_clinical_trial_record
-
+from ingest_multimodal_data import find_similar_images
 
 MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
 GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
@@ -223,11 +223,18 @@ You are a highly specialized Data Visualization Agent. Your sole purpose is to r
 *   **Your Final Output:** `"/static/charts/pie_chart_abcde.png"`
 """
 
+INTENT_ROUTER_INSTRUCTION = """
+You are a highly efficient request dispatcher. Your only job is to analyze the user's research query and delegate it to the correct specialist agent. You must not answer the user directly.
+- **IF** the query asks for a **trend over time** or a **plot of publications per year**, you **MUST** call the `TrendAnalysisAgent`.
+- **IF** the query asks for a **synthesis of findings**, to **connect research to trials**, or to **show visual evidence** (e.g., "show me a scan of..."), you **MUST** call the `MasterResearchSynthesizer`.
+You must call one and only one of these two specialist agents.
+"""
+
 
 # --- AGENT 2: Key Insight Extractor ---
 KEY_INSIGHT_EXTRACTOR_INSTRUCTION = """
 Your task is to analyze research data and extract key information.
-You will receive research results in the session state key `local_db_results`.
+You will receive research results in the session state key `local_db_results` and `clinical_trials_results`.
 From the text of the top 1-2 most relevant articles, identify and extract a list of the most important entities.
 These entities can be drug names, gene targets, therapy acronyms, or key biological mechanisms.
 Your final output MUST be a clean JSON list of these entity strings.
@@ -242,52 +249,113 @@ You MUST call the `query_clinical_trials_from_mongodb` tool for this. You can ca
 Your final output MUST be a consolidated list of all the relevant clinical trial summaries you found.
 """
 
+MULTIMODAL_EVIDENCE_INSTRUCTION = "You are a visual evidence specialist. You will receive a text description in `visual_query_text`. Your job is to call the `find_similar_images` tool with this text to find a matching medical image."
+
 # --- AGENT 4: Narrative Weaver & Analyst ---
 SYNTHESIS_AND_REPORT_INSTRUCTION = """
 You are a world-class AI Research Analyst and Communicator. Your final and most important job is to synthesize all available information into a single, insightful, and comprehensive report for the user.
 
 **Your Available Information (from session state):**
 - The user's original query (`current_research_query`).
-- Initial broad search results (`local_db_results`, `web_search_results`).
+- Initial broad search results (`local_db_results`, `web_search_results`, `clinical_trials_results`).
 - Deep-dive search results of connected trials (`connected_trials_results`).
-
-
-**--- PRIMARY DECISION WORKFLOW ---**
-
-1.  **ANALYZE USER INTENT:** First, examine the user's query.
-    *   If the query asks for a **trend over time**, a **plot of data per year**, or a **timeline**, your intent is **TREND ANALYSIS**.
-    *   For all other research queries, such as "what is the latest on...", "connect papers to trials...", or "show me the distribution of X", your intent is **INSIGHT SYNTHESIS**.
-
-2.  **EXECUTE BASED ON INTENT:**
-    *   **IF INTENT IS TREND ANALYSIS:**
-        *   **Action:** Call the `get_publication_trend` tool using the topic from the user's query.
-        *   **Next Action:** Take the complete JSON payload returned by the tool and pass it directly to the `VisualizationAgent`.
-        *   **Final Output:** Present the chart to the user with a simple introductory sentence.
-
-    *   **IF INTENT IS INSIGHT SYNTHESIS:**
-        *   Proceed with the detailed **Synthesis Workflow** below.
-
----
 
 
 **Your Mandatory Workflow:**
 
-1.  **Check for Trend Analysis:** First, check if the original user query was for a trend analysis. If it was, use the `get_publication_trend` tool to get data, pass it to the `VisualizationAgent`, and present the chart. This is a separate path.
-
-2.  **Synthesize the Narrative:** For all other queries, weave a story.
+1.  **Synthesize the Narrative:** For all other queries, weave a story.
     *   Start with the **Foundational Research** from the initial PubMed search.
     *   Create **The Connection** by explaining how this research leads to the deep-dive findings.
     *   Detail the **Clinical Trial Insights** from the connected trials.
 
-3.  **Incorporate Visuals:** Scan the synthesized text for any quantifiable data. If found, format it into the required JSON and call the `VisualizationAgent`. Weave the returned chart URL into your narrative.
+2.  **Generate the "Aha!" Moment:** Conclude with the **"Generated Insight & Future Direction:"** section, providing one novel, forward-looking thought.
+    *   For example, you could highlight a gap between the findings in a paper and the design of a clinical trial.
 
-4.  **Generate the "Aha!" Moment:** Conclude with the **"Generated Insight & Future Direction:"** section, providing one novel, forward-looking thought.
-
-5.  **Ancillary Tasks:** If there are new web articles, ask the user if they'd like to save them via the `IngestionRouterAgent`.
+3.  **Ancillary Tasks:** If there are new web articles, ask the user if they'd like to save them via the `IngestionRouterAgent`.
 
 **Your final output is the complete, formatted, user-facing report.** Review the detailed example in your documentation to match the expected tone and structure.
 """
 
+
+# NEW: Instruction for the Text-Only Synthesizer
+TEXT_SYNTHESIZER_INSTRUCTION = """
+You are a world-class AI Research Analyst and Writer. Your only job is to synthesize all available information into a single, insightful, and comprehensive **text-only report**. Do not create or mention any charts or images.
+
+**Your Available Information (from session state):**
+- Initial broad search results (`local_db_results`, `web_search_results`, `clinical_trials_results`).
+- Deep-dive search results of connected trials (`connected_trials_results`).
+
+**Your Mandatory Workflow:**
+1.  **Synthesize the Narrative:** Weave a story that includes:
+    *   A "Foundational Research" section based on PubMed and web searches.
+    *   A "The Connection" section explaining how the research links to trials.
+    *   A "Clinical Trial Insights" section detailing the connected trials.
+2.  **Generate the "Aha!" Moment:** Conclude with a section titled **"Generated Insight & Future Direction:"** providing one novel, forward-looking thought.
+3.  **Ancillary Tasks:** If there are new web articles, ask the user if they'd like to save them.
+
+**Your final output is the complete, formatted, text-only report.**
+"""
+
+# NEW: Instruction for the Visuals-Only Producer
+VISUAL_SYNTHESIZER_INSTRUCTION = """
+You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts or images in the available text and call the appropriate tools to generate them.
+
+**Your Available Information (from session state):**
+- All raw text from `local_db_results`, `web_search_results`, and `clinical_trials_results`.
+
+**Your Mandatory Workflow:**
+1.  **Scan for All Visuals:** Read through all the available text in `local_db_results`, `web_search_results`, and `clinical_trials_results`.
+2.  **Generate Charts:** For **every piece** of quantifiable data you find (e.g., percentages, funding numbers), you MUST:
+    *   Format the data into the required JSON structure.
+    *   Call the `VisualizationAgent` tool with the JSON to generate a chart.
+3.  **Find Image Evidence:** For **every key visual description** you find (e.g., "ground-glass opacity," "spiculated nodule"), you MUST:
+    *   Call the `MultimodalEvidenceAgent` tool with the description as the query.
+4.  **Consolidate Output:** Your final output should be a well-formatted "Visuals Report" that presents the URLs for every chart and image you generated, each with a clear title.
+
+**Example Output:**
+Visual Evidence & Data Insights
+Chart: Efficacy of huCART19-IL18 Therapy
+[/static/charts/chart_abc123.png]
+Visual Evidence: CT Scan of a Spiculated Nodule
+[/static/medical_images/image_xyz789.png]
+"""
+
+
+# UPDATED: The Text & Data Weaver now knows about visual evidence.
+TEXT_AND_DATA_WEAVER_INSTRUCTION = """
+Your job is to write a comprehensive narrative report and prepare all data for final assembly.
+**Input:** All prior research data from session state.
+**Workflow:**
+1.  Synthesize a full narrative report including "Foundational Research," "The Connection," and "Generated Insight."
+2.  While writing, identify any quantifiable data suitable for a chart. If found, create a `chart_json` object.
+3.  Also, identify any key **visual descriptions** (e.g., "ground-glass opacity," "spiculated nodule"). If found, create a `visual_query_text` string.
+4.  Insert the placeholder `[CHART_PLACEHOLDER]` where the chart should go and `[IMAGE_EVIDENCE_PLACEHOLDER]` where the visual evidence should go.
+**Output:** A single JSON object with all prepared assets: `{"narrative_text": "...", "chart_json": {...}, "visual_query_text": "..."}`.
+"""
+
+# NEW: The Final Passthrough Aggregator Agent
+FINAL_AGGREGATOR_INSTRUCTION = """
+You are a simple report aggregator. Your only job is to combine three reports into one.
+You will have two pieces of information in the session state:
+- `text_report`: A detailed written summary.
+- `visual_report`: A report containing URLs for charts and images.
+- `image_report`: A report containing URLs for images.
+
+Your final output **MUST** be the `text_report` followed immediately by the `visual_report`. Do not add any extra words, summaries, or modifications. Just combine them.
+"""
+
+
+IMAGE_EVIDENCE_PRODUCER_INSTRUCTION = """
+You are a visual evidence specialist. Your only job is to scan all available text in the session state and find opportunities to show relevant medical images.
+
+**Your Mandatory Workflow:**
+1.  **Identify Core Subject:** First, determine the primary subject of the research (e.g., "lung cancer," "lymphoma," "brain tumor").
+2.  **Formulate a Broad Visual Query:** Create a general query based on the core subject. Instead of looking for hyper-specific terms, broaden the search.
+    *   **Good Example:** If the report is about lung cancer, a good query is "CT scan of a lung with a possible nodule."
+    *   **Bad Example:** If the report is about lung cancer, do not search for "adenocarcinoma with lepidic growth pattern" unless that exact phrase is known to be in the image descriptions.
+3.  **Call the Evidence Tool:** You **MUST** call the `MultimodalEvidenceAgent` tool using the broad visual query you formulated.
+4.  **Construct URL and Consolidate Output:** If the tool returns any results, take the first result and construct the full URL. Your final output must be a markdown-formatted "Visual Evidence" report. If no images are found, your output should state that clearly.
+"""
 
 def create_streaming_agent_with_mcp_tools(
     loaded_mcp_toolsets: List[MCPToolset],
@@ -437,6 +505,16 @@ def create_streaming_agent_with_mcp_tools(
         output_key="connected_trials_results" # Its output is the list of connected trials
     )
 
+    # Create the initial data-gathering sequence
+    data_gathering_and_connection_agent = SequentialAgent(
+        name="DataGatheringAndConnectionAgent",
+        sub_agents=[
+            research_orchestrator_agent,
+            key_insight_extractor_agent,
+            trial_connector_agent
+        ]
+    )
+    
     visualization_agent = LlmAgent(
        model=GEMINI_PRO_MODEL_ID,
        name="VisualizationAgent",
@@ -450,6 +528,22 @@ def create_streaming_agent_with_mcp_tools(
     if hasattr(visualization_agent_tool, 'run_async') and callable(getattr(visualization_agent_tool, 'run_async')):
        visualization_agent_tool.func = visualization_agent_tool.run_async # type: ignore
 
+
+    trend_data_fetcher_agent = LlmAgent(model=GEMINI_PRO_MODEL_ID, name="TrendDataFetcherAgent", instruction="Call the get_publication_trend tool.", tools=[get_publication_trend], output_key="trend_chart_json")
+    
+    # NEW: The Multimodal Evidence Agent
+    multimodal_evidence_agent = LlmAgent(model=GEMINI_PRO_MODEL_ID, name="MultimodalEvidenceAgent", instruction=MULTIMODAL_EVIDENCE_INSTRUCTION, tools=[find_similar_images], output_key="image_evidence_results")
+    multimodal_evidence_tool = AgentTool(agent=multimodal_evidence_agent)
+    if hasattr(multimodal_evidence_tool, 'run_async'):
+        multimodal_evidence_tool.func = multimodal_evidence_tool.run_async
+    
+    # --- WORKFLOW 1: The Trend Analysis "Short Path" ---
+    trend_analysis_agent = SequentialAgent(name="TrendAnalysisAgent", description="A simple workflow to fetch trend data and visualize it.", sub_agents=[trend_data_fetcher_agent, visualization_agent])
+    trend_analysis_tool = AgentTool(agent=trend_analysis_agent)
+    if hasattr(trend_analysis_tool, 'run_async'):
+        trend_analysis_tool.func = trend_analysis_tool.run_async
+
+
     # NEW: Create the "Smart Ingestion Router" Agent
     ingestion_router_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
@@ -461,6 +555,32 @@ def create_streaming_agent_with_mcp_tools(
     ingestion_router_agent_tool = AgentTool(agent=ingestion_router_agent)
     if hasattr(ingestion_router_agent_tool, 'run_async'):
        ingestion_router_agent_tool.func = ingestion_router_agent_tool.run_async
+
+    # Agent A: The Narrative Writer
+    text_synthesizer_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="TextSynthesizerAgent",
+        instruction=TEXT_SYNTHESIZER_INSTRUCTION,
+        output_key="text_report"
+    )
+
+    # Agent B: The Visual Producer
+    visual_synthesizer_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="VisualSynthesizerAgent",
+        instruction=VISUAL_SYNTHESIZER_INSTRUCTION,
+        tools=[visualization_agent_tool, multimodal_evidence_tool],
+        output_key="visual_report"
+    )
+
+    # NEW - Agent C: The Image Detective
+    image_evidence_producer_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ImageEvidenceProducerAgent",
+        instruction=IMAGE_EVIDENCE_PRODUCER_INSTRUCTION,
+        tools=[AgentTool(agent=multimodal_evidence_agent)],
+        output_key="image_report"
+    )
     
     
     # Agent 4: Narrative Weaver
@@ -475,15 +595,37 @@ def create_streaming_agent_with_mcp_tools(
         ]
     )
 
+
+
+    # NEW: The Parallel Synthesizer
+    parallel_synthesis_agent = ParallelAgent(
+        name="ParallelSynthesisAgent",
+        description="Splits the final report generation into two parallel streams: text and visuals.",
+        sub_agents=[
+            text_synthesizer_agent,
+            visual_synthesizer_agent,
+            image_evidence_producer_agent
+        ]
+        # The outputs "text_report" and "visual_report" will be available in session state
+    )
+
+    # NEW: The Final Aggregator Agent
+    final_report_aggregator_agent = LlmAgent(
+        name="FinalReportAggregatorAgent",
+        model=GEMINI_PRO_MODEL_ID,
+        instruction=FINAL_AGGREGATOR_INSTRUCTION
+        # No tools needed, it just processes text from session state
+    )
+    
+
     # NEW: Define the Master Research Synthesizer as a Sequential Agent
     master_research_synthesizer = SequentialAgent(
         name="MasterResearchSynthesizer",
         description="A sequential research assembly line that generates novel insights by connecting published papers to clinical trials.",
         sub_agents=[
-            research_orchestrator_agent,    # Step 1
-            key_insight_extractor_agent,    # Step 2
-            trial_connector_agent,          # Step 3
-            synthesis_and_report_agent      # Step 4 (Final Output)
+            data_gathering_and_connection_agent,
+            parallel_synthesis_agent,
+            final_report_aggregator_agent 
         ]
     )
     master_research_synthesizer_tool = AgentTool(agent=master_research_synthesizer)
@@ -492,6 +634,25 @@ def create_streaming_agent_with_mcp_tools(
     
     all_root_agent_tools.append(master_research_synthesizer_tool)
     logging.info("MasterResearchSynthesizer assembly line created and added to Root Agent's tools.")
+
+
+    # --- THE DISPATCHER: The Intent Router Agent ---
+    intent_router_agent = LlmAgent(
+        name="IntentRouterAgent",
+        model=GEMINI_PRO_MODEL_ID,
+        instruction=INTENT_ROUTER_INSTRUCTION,
+        description="The master research dispatcher. Analyzes user queries and routes them to the correct specialist workflow.",
+        tools=[
+            trend_analysis_tool,
+            master_research_synthesizer_tool 
+        ]
+    )
+    intent_router_agent_tool = AgentTool(agent=intent_router_agent)
+    if hasattr(intent_router_agent_tool, 'run_async'):
+        intent_router_agent_tool.func = intent_router_agent_tool.run_async
+
+    all_root_agent_tools.append(intent_router_agent_tool)
+    logging.info("IntentRouterAgent created and added to Root Agent's tools.")
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(
