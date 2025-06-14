@@ -1,5 +1,6 @@
 # main.py
 
+import io
 import os
 import json
 import asyncio
@@ -11,9 +12,9 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, List, Tuple, Optional
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, Query
+from fastapi import FastAPI, Response, WebSocket, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from starlette.websockets import WebSocketDisconnect
 from pydantic import BaseModel
 
@@ -25,6 +26,13 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters
 
 from google.cloud import secretmanager 
+
+import pydicom
+import numpy as np
+from PIL import Image
+
+
+
 
 ### --- NEW --- ###
 # Import Firebase Admin SDK components
@@ -568,6 +576,56 @@ async def websocket_endpoint(
             await websocket.close()
         logging.info(f"WebSocket processing finished for client #{uid}.")
 
+# --- NEW: Configuration for the medical image data path ---
+# This MUST match the path where your download_tcia_data.py script saves the data
+MEDICAL_IMAGE_DATA_DIR = os.path.abspath(os.path.join('data', 'tcia_lidc_idri'))
+
+# ... (your existing app = FastAPI() and other setup)
+
+# --- NEW: Image Serving Endpoint for Medical Scans ---
+@app.get("/static/medical_images/{series_uid}/{image_filename}")
+async def serve_medical_image(series_uid: str, image_filename: str):
+    """
+    Serves a specific medical image (DICOM converted to PNG for browser).
+    This endpoint finds the DICOM file, converts it on-the-fly to PNG,
+    and sends it to the user's browser.
+    """
+    # Basic security to prevent directory traversal attacks
+    if ".." in series_uid or ".." in image_filename:
+        return Response(status_code=404)
+
+    try:
+        # Reconstruct the full path to the .dcm file
+        # The agent will request a .png, but the file on disk is .dcm
+        dicom_filename = image_filename.replace('.png', '.dcm')
+        series_dir_path = os.path.join(MEDICAL_IMAGE_DATA_DIR, series_uid)
+        dicom_filepath = os.path.join(series_dir_path, dicom_filename)
+
+        if not os.path.exists(dicom_filepath):
+            logging.error(f"Image file not found: {dicom_filepath}")
+            return Response(status_code=404)
+
+        # --- On-the-fly DICOM to PNG conversion ---
+        dicom_data = pydicom.dcmread(dicom_filepath)
+        pixels = dicom_data.pixel_array.astype(float)
+        pixels_scaled = (np.maximum(pixels, 0) / pixels.max()) * 255.0
+        image_array = pixels_scaled.astype(np.uint8)
+        
+        pil_image = Image.fromarray(image_array)
+        
+        # Save the PNG to an in-memory byte buffer
+        img_io = io.BytesIO()
+        pil_image.save(img_io, 'PNG')
+        img_io.seek(0)
+        
+        # Use StreamingResponse for sending image data
+        return StreamingResponse(img_io, media_type="image/png")
+
+    except Exception as e:
+        logging.error(f"Error serving medical image {series_uid}/{image_filename}: {e}", exc_info=True)
+        return Response(status_code=500)
+
+
 
 # --- Static Files & Root Endpoint ---
 app.mount("/static", StaticFiles(directory=STATIC_DIR, html=True), name="static")
@@ -579,6 +637,7 @@ app.mount("/assets", StaticFiles(directory="assets", html=True), name="assets")
 async def root():
     """Serves the index.html from the static directory"""
     return FileResponse(os.path.join(STATIC_DIR, "index.html"))
+
 
 # To run this (after installing dependencies like uvicorn, fastapi, google-adk, etc.):
 # Ensure your .env file has GOOGLE_API_KEY or Vertex AI configs.
