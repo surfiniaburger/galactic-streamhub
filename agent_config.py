@@ -249,7 +249,7 @@ You MUST call the `query_clinical_trials_from_mongodb` tool for this. You can ca
 Your final output MUST be a consolidated list of all the relevant clinical trial summaries you found.
 """
 
-MULTIMODAL_EVIDENCE_INSTRUCTION = "You are a visual evidence specialist. You will receive a text description in `visual_query_text`. Your job is to call the `find_similar_images` tool with this text to find a matching medical image."
+MULTIMODAL_EVIDENCE_INSTRUCTION = "You are a visual evidence specialist. You will receive a text description. Your job is to call the `find_similar_images` tool with this text to find a matching medical image."
 
 # --- AGENT 4: Narrative Weaver & Analyst ---
 SYNTHESIS_AND_REPORT_INSTRUCTION = """
@@ -296,29 +296,6 @@ You are a world-class AI Research Analyst and Writer. Your only job is to synthe
 **Your final output is the complete, formatted, text-only report.**
 """
 
-# NEW: Instruction for the Visuals-Only Producer
-VISUAL_SYNTHESIZER_INSTRUCTION = """
-You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts or images in the available text and call the appropriate tools to generate them.
-
-**Your Available Information (from session state):**
-- All raw text from `local_db_results`, `web_search_results`, and `clinical_trials_results`.
-
-**Your Mandatory Workflow:**
-1.  **Scan for All Visuals:** Read through all the available text in `local_db_results`, `web_search_results`, and `clinical_trials_results`.
-2.  **Generate Charts:** For **every piece** of quantifiable data you find (e.g., percentages, funding numbers), you MUST:
-    *   Format the data into the required JSON structure.
-    *   Call the `VisualizationAgent` tool with the JSON to generate a chart.
-3.  **Find Image Evidence:** For **every key visual description** you find (e.g., "ground-glass opacity," "spiculated nodule"), you MUST:
-    *   Call the `MultimodalEvidenceAgent` tool with the description as the query.
-4.  **Consolidate Output:** Your final output should be a well-formatted "Visuals Report" that presents the URLs for every chart and image you generated, each with a clear title.
-
-**Example Output:**
-Visual Evidence & Data Insights
-Chart: Efficacy of huCART19-IL18 Therapy
-[/static/charts/chart_abc123.png]
-Visual Evidence: CT Scan of a Spiculated Nodule
-[/static/medical_images/image_xyz789.png]
-"""
 
 
 # UPDATED: The Text & Data Weaver now knows about visual evidence.
@@ -333,29 +310,58 @@ Your job is to write a comprehensive narrative report and prepare all data for f
 **Output:** A single JSON object with all prepared assets: `{"narrative_text": "...", "chart_json": {...}, "visual_query_text": "..."}`.
 """
 
-# NEW: The Final Passthrough Aggregator Agent
-FINAL_AGGREGATOR_INSTRUCTION = """
-You are a simple report aggregator. Your only job is to combine three reports into one.
-You will have two pieces of information in the session state:
-- `text_report`: A detailed written summary.
-- `visual_report`: A report containing URLs for charts and images.
-- `image_report`: A report containing URLs for images.
+# NEW: Hyper-focused Chart Producer Instruction
+CHART_PRODUCER_INSTRUCTION = """
+You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts or images in the available text and call the appropriate tools to generate them.
+Your Available Information (from session state):
+All raw text from `local_db_results`, `web_search_results`, and `clinical_trials_results`.
 
-Your final output **MUST** be the `text_report` followed immediately by the `visual_report`. Do not add any extra words, summaries, or modifications. Just combine them.
+Your Mandatory Workflow:
+1. Scan for All Visuals: Read through all the available text in `local_db_results`, `web_search_results`, and `clinical_trials_results`.
+2. Generate Charts: For every piece of quantifiable data you find (e.g., percentages, funding numbers), you MUST:
+    *  Format the data into the required JSON structure.
+    *  Call the `VisualizationAgent` tool with the JSON to generate a chart.
+
+Consolidate Output: Your final output should be a well-formatted "Data Insights" that presents the URLs for every chart and image you generated, each with a clear title.
+
+Example Output:
+Data Insights
+Chart: Efficacy of huCART19-IL18 Therapy
+[/static/charts/chart_abc123.png]
 """
+
+# The instruction for the aggregator agent
+FINAL_AGGREGATOR_INSTRUCTION = """
+You are a simple report compiler. Your only job is to combine up to three reports into one final document.
+You will have the following information available in the session state:
+- `text_report`: The detailed written summary.
+- `chart_report`: A report containing URLs for data charts.
+- `image_report`: A report containing URLs for medical images.
+
+Your final output **MUST** be the `text_report`, followed by the `chart_report`, followed by the `image_report`. If a report is missing or empty, simply omit it. Do not add, edit, or summarize anything. Just stack the available reports.
+"""
+
 
 
 IMAGE_EVIDENCE_PRODUCER_INSTRUCTION = """
-You are a visual evidence specialist. Your only job is to scan all available text in the session state and find opportunities to show relevant medical images.
+You are a visual evidence specialist. Your only job is to scan all available text in the session state for key physical or visual descriptions (e.g., "ground-glass opacity," "spiculated nodule," "cellular inflammation").
 
 **Your Mandatory Workflow:**
-1.  **Identify Core Subject:** First, determine the primary subject of the research (e.g., "lung cancer," "lymphoma," "brain tumor").
-2.  **Formulate a Broad Visual Query:** Create a general query based on the core subject. Instead of looking for hyper-specific terms, broaden the search.
-    *   **Good Example:** If the report is about lung cancer, a good query is "CT scan of a lung with a possible nodule."
-    *   **Bad Example:** If the report is about lung cancer, do not search for "adenocarcinoma with lepidic growth pattern" unless that exact phrase is known to be in the image descriptions.
-3.  **Call the Evidence Tool:** You **MUST** call the `MultimodalEvidenceAgent` tool using the broad visual query you formulated.
-4.  **Construct URL and Consolidate Output:** If the tool returns any results, take the first result and construct the full URL. Your final output must be a markdown-formatted "Visual Evidence" report. If no images are found, your output should state that clearly.
+1.  **Find Visual Descriptions:** Identify all unique visual descriptions in the text.
+2.  **Call Evidence Tool:** For **each** description, you MUST call the `MultimodalEvidenceAgent` tool to find matching images.
+3.  **Construct URLs and Consolidate Output:** The `MultimodalEvidenceAgent` will return a list of image records. For each record, you must do the following:
+    *   Take the `patient_series_uid` (e.g., "1.3.6.1.4.1...")
+    *   Take the `image_id` and convert it to a PNG filename (e.g., `..._slice_1.png`).
+    *   **Construct a final URL** in the format: `/static/medical_images/<patient_series_uid>/<image_filename.png>`
+    *   Your final output must be a markdown-formatted "Visuals Report" that presents these constructed URLs, each with a clear title.
+
+**Example Output:**
+
+Visual Evidence
+Visual Evidence: CT Scan of a Spiculated Nodule
+[/static/medical_images/1.3.6.1.4.1.14519.5.2.1.../1.3.6.1.4.1.14519.5.2.1..._slice_1.png]
 """
+
 
 def create_streaming_agent_with_mcp_tools(
     loaded_mcp_toolsets: List[MCPToolset],
@@ -564,24 +570,25 @@ def create_streaming_agent_with_mcp_tools(
         output_key="text_report"
     )
 
-    # Agent B: The Visual Producer
-    visual_synthesizer_agent = LlmAgent(
+    # Agent B: The Chart Producer (NEW)
+    chart_producer_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
-        name="VisualSynthesizerAgent",
-        instruction=VISUAL_SYNTHESIZER_INSTRUCTION,
-        tools=[visualization_agent_tool, multimodal_evidence_tool],
-        output_key="visual_report"
+        name="ChartProducerAgent",
+        instruction=CHART_PRODUCER_INSTRUCTION,
+        tools=[visualization_agent_tool], # Its only tool is the viz agent
+        output_key="chart_report"
     )
 
-    # NEW - Agent C: The Image Detective
+    # Agent C: The Image Detective (NEW)
     image_evidence_producer_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
         name="ImageEvidenceProducerAgent",
         instruction=IMAGE_EVIDENCE_PRODUCER_INSTRUCTION,
-        tools=[AgentTool(agent=multimodal_evidence_agent)],
+        tools=[multimodal_evidence_tool], # Its only tool is the multimodal agent
         output_key="image_report"
     )
-    
+
+
     
     # Agent 4: Narrative Weaver
     synthesis_and_report_agent = LlmAgent(
@@ -603,8 +610,10 @@ def create_streaming_agent_with_mcp_tools(
         description="Splits the final report generation into two parallel streams: text and visuals.",
         sub_agents=[
             text_synthesizer_agent,
-            visual_synthesizer_agent,
+            chart_producer_agent,
             image_evidence_producer_agent
+            
+
         ]
         # The outputs "text_report" and "visual_report" will be available in session state
     )
