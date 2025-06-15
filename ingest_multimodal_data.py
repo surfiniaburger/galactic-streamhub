@@ -11,6 +11,7 @@ from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 import certifi
 from pymongo.operations import SearchIndexModel
+from vertexai.generative_models import GenerativeModel, Part
 
 
 # --- Configuration ---
@@ -34,6 +35,7 @@ try:
     vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
     # Load the pre-trained multimodal embedding model
     embedding_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+    generative_model = GenerativeModel("gemini-2.5-flash-preview-05-20")
     logging.info("Successfully initialized Vertex AI and loaded the multimodal embedding model.")
 except Exception as e:
     logging.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
@@ -75,6 +77,44 @@ def process_dicom_file(filepath: str) -> np.ndarray | None:
     except Exception as e:
         logging.error(f"Could not read or process DICOM file {filepath}: {e}")
         return None
+    
+# --- NEW: AI-Powered Image Captioning Function ---
+def generate_image_caption(image_bytes: bytes) -> str:
+    """
+    Uses a two-step AI process: first, generate a detailed caption for a medical image,
+    then summarize it to ensure it's concise and fits within embedding limits.
+    """
+    logging.info("Generating detailed AI-powered image caption...")
+    try:
+        # Step 1: Generate the detailed, long-form caption
+        image_part = Part.from_data(data=image_bytes, mime_type="image/png")
+        detailed_prompt = "You are a radiology assistant. Describe the key anatomical structures and any potential anomalies visible in this medical CT scan of a lung. Be detailed and structured."
+        
+        response_detailed = generative_model.generate_content([image_part, detailed_prompt])
+        long_caption = response_detailed.text
+        logging.info(f"Generated Detailed Caption (length: {len(long_caption)}):\n{long_caption}")
+
+        # Step 2: Generate a concise summary of the detailed caption
+        logging.info("Summarizing detailed caption for embedding...")
+        summarization_prompt = f"""
+        You are a medical data summarizer. Take the following detailed radiology report and summarize it into a very concise, single paragraph of no more than 700 characters. Focus on the most important findings and keywords.
+
+        Detailed Report:
+        ---
+        {long_caption}
+        ---
+        
+        Concise Summary:
+        """
+        response_summary = generative_model.generate_content(summarization_prompt)
+        concise_summary = response_summary.text.strip()
+        logging.info(f"Generated Concise Summary (length: {len(concise_summary)}): {concise_summary}")
+        
+        return concise_summary
+
+    except Exception as e:
+        logging.error(f"Failed to generate concise description: {e}", exc_info=True)
+        return "A CT scan of a lung." # Fallback description
 
 def generate_multimodal_embedding(image_bytes: bytes, text_description: str) -> list | None:
     """
@@ -194,6 +234,7 @@ def find_similar_images(query_text: str, limit: int = 3):
                     "_id": 0,
                     "image_id": 1,
                     "text_description": 1,
+                    "patient_series_uid": 1, # Make sure to return this
                     "score": {"$meta": "vectorSearchScore"}
                 }
             }
@@ -206,6 +247,7 @@ def find_similar_images(query_text: str, limit: int = 3):
             for result in results:
                 logging.info(f"  - Image ID: {result['image_id']}, Score: {result['score']:.4f}")
                 logging.info(f"    Description: {result['text_description']}")
+                return results
         else:
             logging.warning("No similar images found for the query.")
 
@@ -280,8 +322,14 @@ def run_multimodal_ingestion_pipeline(sample_limit: int = 3):
         # In a real scenario, you'd parse XML annotations here.
         # For the hackathon, we'll create a descriptive placeholder text.
         text_description = f"A CT scan of a lung from the LIDC-IDRI dataset, patient series {series_dir_name}. This scan may contain nodules or signs of cancer."
+
+        ai_caption = generate_image_caption(image_bytes)
         
-        embedding_vector = generate_multimodal_embedding(image_bytes, text_description)
+        # --- 3. Add Structured Keywords for Robustness ---
+        structured_keywords = "Keywords: Lung Cancer, CT Scan, Nodule, LIDC-IDRI."
+        final_text_description = f"{ai_caption} {structured_keywords}"
+        
+        embedding_vector = generate_multimodal_embedding(image_bytes, final_text_description)
         if embedding_vector is None:
             continue
 
@@ -314,4 +362,4 @@ def run_multimodal_ingestion_pipeline(sample_limit: int = 3):
 if __name__ == '__main__':
     #run_multimodal_ingestion_pipeline(sample_limit=5) # Process 5 patient series for the demo
     # After ingestion, run a sample query to test the index
-    find_similar_images(query_text="A CT scan showing a possible cancerous lung nodule", limit=3)
+    find_similar_images(query_text="CT scan lung cancer screening", limit=3)

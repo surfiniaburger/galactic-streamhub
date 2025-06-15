@@ -284,19 +284,37 @@ function parseStructuredContent(text) {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         
-        // Detect image URLs
-        const imageMatch = line.match(/^\[?(\/static\/charts\/[a-zA-Z0-9_-]+\.png)\]?$/);
-        if (imageMatch) {
+        // Detect chart image URLs
+        const chartImageMatch = line.match(/^\[?(\/static\/charts\/[a-zA-Z0-9_-]+\.png)\]?$/);
+        // Detect medical scan image URLs (matches /static/medical_images/series_uid/filename.png)
+        const medicalImageMatch = line.match(/^\[?(\/static\/medical_images\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\.png)\]?$/);
+
+        if (chartImageMatch) {
             // Finalize current section
             if (currentSection.content.trim()) {
                 sections.push({ ...currentSection });
             }
             
-            // Add image section
+            // Add chart image section
             sections.push({
                 type: 'image',
-                src: imageMatch[1],
+                src: chartImageMatch[1],
                 alt: 'Generated Chart'
+            });
+            
+            currentSection = { type: 'text', content: '' };
+            continue;
+        } else if (medicalImageMatch) { // Handle medical images
+            // Finalize current section
+            if (currentSection.content.trim()) {
+                sections.push({ ...currentSection });
+            }
+            
+            // Add medical image section
+            sections.push({
+                type: 'image',
+                src: medicalImageMatch[1],
+                alt: 'Medical Scan Image' // Generic alt text for medical scans
             });
             
             currentSection = { type: 'text', content: '' };
@@ -379,10 +397,6 @@ function createPresentationCard(sections) {
                 html += `<div class="question-section">
                     <div class="question-content">
                         ${parseAdvancedMarkdown(section.content)}
-                    </div>
-                    <div class="question-actions">
-                        <button class="action-btn primary">Yes, Save Articles</button>
-                        <button class="action-btn secondary">Not Now</button>
                     </div>
                 </div>`;
                 break;
@@ -769,5 +783,3 @@ function logInteraction(type) {
     });
   }
 }
-
-
