@@ -6,6 +6,7 @@ import logging
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
+from google.adk.tools import load_memory
 
 # Import new proactive agents and their instructions
 from proactive_agents import (
@@ -74,6 +75,8 @@ You MUST combine all gathered information (recipe details, what's on hand, what'
 # --- Updated Instructions for the Root Agent ---
 ROOT_AGENT_INSTRUCTION_STREAMING = """
 Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to understand user requests, analyze their visual surroundings, and assist them. You can use tools directly for simple queries or delegate complex tasks to `ProactiveContextOrchestratorTool`.
+
+**Memory Usage:** Before processing a new request, ALWAYS consider if the user's query might relate to previous conversations. If it's a follow-up, a clarification, or refers to a topic discussed before, use the `load_memory` tool to retrieve relevant past interactions. For example, if the user says "tell me more about that drug we discussed" or "what were the results of the last trial I asked about?", you MUST use `load_memory` with a concise query based on the user's current request (e.g., "drug discussion", "last trial results"). Integrate any retrieved memory into your understanding and response. If `load_memory` returns nothing or irrelevant information, proceed with the current request as new.
 
 Core Capabilities:
 1.  **Visual Scene Analysis (Multimodal Perception)**:
@@ -312,9 +315,10 @@ Your job is to write a comprehensive narrative report and prepare all data for f
 
 # NEW: Hyper-focused Chart Producer Instruction
 CHART_PRODUCER_INSTRUCTION = """
-You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts or images in the available text and call the appropriate tools to generate them.
+You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts in the available text and call the appropriate tools to generate them.
 Your Available Information (from session state):
 All raw text from `local_db_results`, `web_search_results`, and `clinical_trials_results`.
+
 
 Your Mandatory Workflow:
 1. Scan for All Visuals: Read through all the available text in `local_db_results`, `web_search_results`, and `clinical_trials_results`.
@@ -567,6 +571,9 @@ def create_streaming_agent_with_mcp_tools(
         model=GEMINI_PRO_MODEL_ID,
         name="TextSynthesizerAgent",
         instruction=TEXT_SYNTHESIZER_INSTRUCTION,
+                tools=[
+            ingestion_router_agent_tool,
+        ],
         output_key="text_report"
     )
 
@@ -662,6 +669,9 @@ def create_streaming_agent_with_mcp_tools(
 
     all_root_agent_tools.append(intent_router_agent_tool)
     logging.info("IntentRouterAgent created and added to Root Agent's tools.")
+
+
+    all_root_agent_tools.append(load_memory)
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(

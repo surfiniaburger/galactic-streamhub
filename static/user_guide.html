@@ -407,102 +407,35 @@
 
                 <section id="sample-queries" class="sample-queries">
                     <h2>Sample Queries & Interactions</h2>
-                    <p>To help you get started and test the capabilities of the multi-agent system, here are some sample queries. You can input these into the application's "Comms Channel" (chat interface). <strong>Remember to start audio/video streams via "Stream Controls" if your query involves them!</strong></p>
-                    <p><em>Note: Some tools (like Cocktails, Maps) rely on MCP servers. Ensure these are running if you're testing locally, as described in the main README.</em></p>
-                    <ul>
-                        <li>
-                            <p>General Interaction with AVA (Root Agent):</p>
-                            <code>Hello AVA, what are your main functions?</code>
-                        </li>
-                        <li>
-                            <p>Testing the CocktailDB Tool (via Root Agent or ReactiveTaskDelegatorAgent):</p>
-                            <code>Can you find me a recipe for a non-alcoholic Mojito?</code>
-                        </li>
-                         <li>
-                            <p>Testing the GoogleSearchAgentTool (used by sub-agents like ContextualPrecomputation or ReactiveTaskDelegator):</p>
-                            <code>Search for the latest advancements in quantum computing.</code>
-                        </li>
-                        <li>
-                            <p>Testing Visual Input & AVA's Perception (Start your video feed first!):</p>
-                            <p><em>(Point your camera at a distinct object, e.g., a coffee mug, a plant, or a book.)</em></p>
-                            <code>Describe the main object you see in my video.</code>
-                        </li>
-                        <li>
-                            <p>Testing Proactive Flow with Visual Context (Involves EnvironmentalMonitor & ContextualPrecomputation Agents):</p>
-                            <p><em>(1. Start your video feed. 2. Show some cocktail ingredients like a bottle of gin and a lime. 3. Then type a general query.)</em></p>
-                            <code>I'm thirsty, any ideas?</code>
-                            <p><em>(AVA, through its orchestrator, might proactively suggest a cocktail based on the seen items, e.g., "I see you have gin and lime. Would you like a recipe for a Gin Gimlet?")</em></p>
-                        </li>
-                        <li>
-                            <p>Testing Reactive Flow with Missing Items (Involves ReactiveTaskDelegatorAgent & Maps Tool):</p>
-                            <p><em>(1. Start video. 2. Show some, but not all, ingredients for a cocktail, e.g., gin and Campari. 3. Ask to make a Negroni.)</em></p>
-                            <code>I want to make a Negroni.</code>
-                            <p><em>(AVA might respond: "To make a Negroni, you need Gin, Campari, and Sweet Vermouth. I see you have gin and Campari. You'll need Sweet Vermouth. Would you like me to find a store nearby where you can buy it?")</em></p>
-                        </li>
-                        <li>
-                            <p>Testing Proactive Flow with General Query & Visual Context:</p>
-                            <p><em>(1. Start your video feed. 2. Have a travel guide for Paris visible. 3. Then type a related query.)</em></p>
-                            <code>I'm thinking about my next vacation.</code>
-                            <p><em>(AVA's EnvironmentalMonitorAgent might pick up on "Paris" from the visual, and the ContextualPrecomputationAgent might suggest searching for flights or attractions in Paris.)</em></p>
-                        </li>
-                        <li>
-                            <p>Testing Proactive Assistance with Visual Context (Textbook):</p>
-                            <p><em>(1. Start your video feed. 2. Have a textbook clearly visible to the camera. 3. Remain idle or type a general greeting like "Hello".)</em></p>
-                            <code>Hello AVA.</code>
-                            <p><em>(AVA, through its EnvironmentalMonitorAgent, might detect the textbook. The ContextualPrecomputationAgent might then offer: "I see you have a textbook there. If you tell me the subject or title, I can try to find related articles or summaries for you.")</em></p>
-                        </li>
-                        <p>Testing ClinicalTrials.gov Integration (Biomedical Query):</p>
-                        <code>"Are there any phase 3 clinical trials for new Alzheimer's drugs?"</code>
-                        <p><em>(AVA should delegate this to the `PubMedRAGAgent`. This agent will use its sub-agents, including the `ClinicalTrialsSearchAgent`, to query the live ClinicalTrials.gov API. The synthesized response should include information about relevant trials, attributed to ClinicalTrials.gov.)</em></p>
-                    </li>
-                    <li>
-                        <p>Testing OpenFDA Integration (Drug Adverse Events):</p>
-                        <code>"What are some reported adverse events for Ozempic?"</code>
-                        <p><em>(AVA should delegate this to the `PubMedRAGAgent`. This agent will use its sub-agents, including the `OpenFDASearchAgent`, to query the live OpenFDA API for adverse event reports related to "Ozempic". The synthesized response should include information about these reports, attributed to OpenFDA.)</em></p>
-                    </li>
-                    <li>
-                        <li>
-                            <p>Testing PubMed RAG (Biomedical Query):</p>
-                            <p><em>(Ensure you have run the `pubmed_pipeline.py` script to ingest data into MongoDB.)</em></p>
-                            <code>What are some recent findings on CAR T-cell therapy for lymphoma?</code>
-                            <p><em>(AVA should delegate this to the `PubMedRAGAgent` which will query your MongoDB PubMed collection and synthesize an answer based on the abstracts it finds.)</em></p>
-                        </li>
-                        <li>
-                            <p>Testing Proactive Flow with Textbook leading to PubMed RAG:</p>
-                            <p><em>(1. Start video, show a medical textbook. 2. AVA might offer help. 3. User responds: "Yes, I'm studying immunology.")</em></p>
-                            <p><em>(AVA, through its orchestrator and potentially the `ReactiveTaskDelegatorAgent` or by re-invoking `ContextualPrecomputationAgent` with the new goal, might then use the `QueryPubMedKnowledgeBase` tool to find relevant immunology articles.)</em></p>
-                        </li>
-                    </ul>
-                    <h3>Generating Visualizations (Charts)</h3>
-                    <p>AVA, through its <code>PubMedRAGAgent</code>, can generate charts if it finds suitable quantifiable data in its research. You can guide it or ask for specific chart types:</p>
-                    <ul>
-                        <li>
-                            <p><strong>Bar Chart Example:</strong></p>
-                            <code>"Compare the reported 5-year survival rates for patients with Stage II lung cancer treated with immunotherapy versus chemotherapy. Can you visualize this comparison?"</code>
-                            <p><em>AVA should attempt to find these two data points and present them as a bar chart.</em></p>
-                        </li>
-                        <li>
-                            <p><strong>Line Chart Example:</strong></p>
-                            <code>"Show the trend of publications on CRISPR gene editing per year over the last decade and plot it."</code>
-                            <p><em>AVA should look for yearly publication counts and plot them as a line chart.</em></p>
-                        </li>
-                        <li>
-                            <p><strong>Pie Chart Example:</strong></p>
-                            <code>"What is the approximate distribution of research funding for different types of cancer (e.g., breast, lung, prostate) in the latest reported year? Can you show this as a pie chart?"</code>
-                            <p><em>AVA should try to find proportional data and display it as a pie chart.</em></p>
-                        </li>
-                        <li>
-                            <p><strong>General Visualization Request:</strong></p>
-                            <code>"Find data on the efficacy of new diabetes drugs and visualize the key findings."</code>
-                            <p><em>Here, AVA will decide on the most appropriate chart type based on the data it uncovers.</em></p>
-                        </li>
-                    </ul>
-                    <p><em>Note: The ability to generate a chart and the accuracy of the chart depend on the data found by the agent and the LLM's ability to extract and structure it correctly for visualization.</em></p>
+                        <p>You can type your requests into the message box, or use the voice input feature. Here are some ideas to get you started:</p>
+                
+                        <ul>
+                            <li>
+                              
+                                    "I have gin, limes, and soda water. What cocktail can I make? If I'm missing something, where can I buy it near me?" <em>(Try turning on your video for AVA to see the items!)</em>
+                              
+                            </li>
+                            
+                                <h2>Biomedical Research & Visualization</h2>
+                                
+                                    <li>"Synthesize the latest research on the diagnosis and treatment of non-small cell lung cancer. Find connections to ongoing clinical trials and show me a visual example of a lung nodule from a CT scan."</li>
+                                
+                                
+                                    <li>"Show me a chart of publication trends for 'immunotherapy for melanoma' over the last 10 years."</li>
+                                
+                                 
+                                    <li>"What are the common adverse events reported for Ozempic?"</li>                            
+                        </ul>
+                
+                        <h2>Tips for Interacting with AVA</h2>
+                        <ul>
+                            <li>Be clear and specific in your requests.</li>
+                            <li>For visual tasks, ensure your camera has a clear view of the objects you want AVA to see.</li>
 
-
-
-
-
+                        </ul>
+                
+                        <p>Explore and have fun interacting with AVA! If you have any issues, please refer to the main <a href="README.MD">README</a> or contact the project maintainers.</p>
+                    
                     <p><strong>Experiment!</strong> Try different combinations of visual cues and queries to see how AVA and its team of agents respond. The system is designed to be flexible and understand context.</p>
                 </section>
                 <section id="proactive-research">
@@ -548,11 +481,6 @@
             
                 </section>
             
-                <section id="other-features">
-                    <h2>Other Features</h2>
-                    <p>Details about other AVA features can go here.</p>
-                    <!-- More content -->
-                </section>
 
                 <footer class="guide-footer">
                     <a href="index.html" class="header-nav-button">« Back to Main Application</a>

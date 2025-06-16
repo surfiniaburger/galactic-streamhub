@@ -24,14 +24,14 @@ from google.adk.agents import LiveRequestQueue
 from google.adk.agents.run_config import RunConfig
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters
+from google.adk.memory import VertexAiRagMemoryService, InMemoryMemoryService # Add InMemory for fallback/testing if needed
+from google.adk.tools import load_memory # Ensure this is imported if not already
 
 from google.cloud import secretmanager 
 
 import pydicom
 import numpy as np
 from PIL import Image
-
-
 
 
 ### --- NEW --- ###
@@ -279,6 +279,22 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
     except Exception as e:
         logging.error(f"Application Lifespan: Error during MCPToolset creation phase: {e}", exc_info=True)
 
+    # --- Initialize Memory Service ---
+    RAG_CORPUS_RESOURCE_NAME = "projects/140457946058/locations/us-central1/ragCorpora/2305843009213693952" # Your RAG Corpus
+    try:
+        logging.info("Initializing Vertex AI RAG Memory Service...")
+        app_instance.state.memory_service = VertexAiRagMemoryService(
+            rag_corpus=RAG_CORPUS_RESOURCE_NAME
+            # Add similarity_top_k, vector_distance_threshold if needed
+        )
+        logging.info("Vertex AI RAG Memory Service initialized successfully.")
+    except Exception as e:
+        logging.error(f"Failed to initialize Vertex AI RAG Memory Service: {e}. Falling back to InMemoryMemoryService.", exc_info=True)
+        # Fallback for local dev or if RAG setup fails, but not ideal for production persistence
+        app_instance.state.memory_service = InMemoryMemoryService()
+        logging.info("Initialized InMemoryMemoryService as a fallback.")
+    # --- End Initialize Memory Service ---
+
     yield # Application runs here
 
     logging.info("Application Lifespan: Shutdown initiated - Closing MCPToolsets.")
@@ -298,8 +314,9 @@ app = FastAPI(lifespan=app_lifespan)
 # --- ADK Streaming Agent Session ---
 async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = False): # Pass app_state
     logging.info(f"Starting agent session {session_id}, audio: {is_audio}")
+    user_id_for_session = session_id
     session = await session_service.create_session(
-        app_name=APP_NAME, user_id=session_id, session_id=session_id, state={}
+        app_name=APP_NAME, user_id=user_id_for_session, session_id=session_id, state={}
     )
 
     # Get the list of MCPToolset instances and any other tools
@@ -325,10 +342,19 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         #raw_mcp_tools_lookup_for_warnings=raw_mcp_tools_for_config
     )
 
+    # ---- KEY CHANGE: Provide memory_service to Runner ----
+    runner_memory_service = getattr(app_state, 'memory_service', None)
+    if not runner_memory_service:
+        logging.error(f"MemoryService not found in app_state for session {session_id}! Memory features will fail.")
+        # Handle this error appropriately, maybe raise an exception or use a fallback.
+        # Forcing InMemory here if not found, but this indicates a setup issue.
+        runner_memory_service = InMemoryMemoryService()
+
     runner = Runner(
         app_name=APP_NAME,
         agent=agent_instance,
         session_service=session_service,
+        memory_service=runner_memory_service # Pass the initialized memory_service
     )
 
     modality = "AUDIO" if is_audio else "TEXT"
@@ -373,9 +399,11 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
     return live_events, live_request_queue
 
 # --- WebSocket Communication Logic (adapted from your streaming example) ---
-async def agent_to_client_messaging(websocket: WebSocket, live_events, session_id: str):
+async def agent_to_client_messaging(websocket: WebSocket, live_events, session_id: str, user_id: str):
     """Agent to client communication for streaming"""
     logging.info(f"Agent to client messaging task started for session {session_id}.")
+    memory_service_instance = websocket.app.state.memory_service # Get memory service
+
     try:
         async for event in live_events:
             if event.turn_complete or event.interrupted:
@@ -385,6 +413,48 @@ async def agent_to_client_messaging(websocket: WebSocket, live_events, session_i
                 }
                 await websocket.send_text(json.dumps(message))
                 logging.debug(f"[S:{session_id} AGENT TO CLIENT]: Turn status: {message}")
+                # --- ADD SESSION TO MEMORY ---
+                try:
+                    # Fetch the current state of the session
+                    # Use the user_id associated with this WebSocket connection
+                    current_session_for_memory = await session_service.get_session(
+                        app_name=APP_NAME, user_id=user_id, session_id=session_id
+                    )
+                    if current_session_for_memory and memory_service_instance:
+                        logging.info(f"--- Inspecting session {session_id} before adding to memory ---")
+                        logging.info(f"Session ID: {current_session_for_memory.id}")
+                        logging.info(f"User ID: {current_session_for_memory.user_id}")
+                        logging.info(f"Number of events: {len(current_session_for_memory.events)}")
+
+                        # --- NEW CONDITION: Check for meaningful content ---
+                        has_user_message = False
+                        has_agent_response_with_text = False
+                        if current_session_for_memory.events:
+                            for evt in current_session_for_memory.events:
+                                if evt.author == "user" and evt.content and evt.content.parts and evt.content.parts[0].text:
+                                    has_user_message = True
+                                if evt.author == "agent" and evt.content and evt.content.parts and evt.content.parts[0].text:
+                                     # Optional: Add a length check to agent's text if desired
+                                    if len(evt.content.parts[0].text.strip()) > 0 : # Make sure it's not just whitespace
+                                        has_agent_response_with_text = True
+                        
+                        if has_user_message and has_agent_response_with_text: # Only save if there's been a user message and a non-empty agent text response
+                            logging.info(f"Attempting to add session {session_id} (User: {user_id}) to memory (meaningful interaction found)...")
+                            await memory_service_instance.add_session_to_memory(current_session_for_memory)
+                            logging.info(f"Successfully processed add_session_to_memory for session {session_id} (User: {user_id}).")
+                        elif not has_user_message:
+                            logging.info(f"Skipping add_session_to_memory for session {session_id}: No user message found in session events yet.")
+                        else: # Has user message, but no substantial agent text response yet in this turn's events
+                            logging.info(f"Skipping add_session_to_memory for session {session_id}: No substantial agent text response found in session events for this turn yet.")
+
+                except RuntimeError as e: # Catch the specific error
+                    if "The file is empty" in str(e):
+                       logging.error(f"Error adding session {session_id} to memory: RAG service reported the file is empty. Session content likely lacked sufficient text.", exc_info=False) # No need for full exc_info if it's this specific error
+                    else:
+                        logging.error(f"RuntimeError adding session {session_id} to memory: {e}", exc_info=True)
+                except Exception as e:
+                    logging.error(f"Error adding session {session_id} to memory: {e}", exc_info=True)
+                # --- END ADD SESSION TO MEMORY ---
                 continue
 
             part: Optional[Part] = event.content and event.content.parts and event.content.parts[0]
@@ -531,7 +601,7 @@ async def websocket_endpoint(
         live_events, live_request_queue =await start_agent_session(uid, app_state, actual_is_audio)
 
         agent_to_client_task = asyncio.create_task(
-            agent_to_client_messaging(websocket, live_events, uid)
+            agent_to_client_messaging(websocket, live_events, uid, uid)
         )
         client_to_agent_task = asyncio.create_task(
             client_to_agent_messaging(websocket, live_request_queue, uid)
