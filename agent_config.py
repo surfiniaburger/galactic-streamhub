@@ -7,6 +7,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
 from google.adk.tools import load_memory
+from tools.web_utils import fetch_web_article_text_tool 
 
 # Import new proactive agents and their instructions
 from proactive_agents import (
@@ -106,20 +107,61 @@ Core Capabilities:
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
 
 6.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+
+7.  **Article Ingestion Confirmation**:
+    *   If the user's current input is a clear 'yes' (or similar affirmative like 'save it', 'please do') AND the session state `ctx.session.state['article_to_ingest_details']` is populated:
+        *   Retrieve the value from `ctx.session.state['article_to_ingest_details']`. Let's call this `ingestion_data`.
+        *   **Check the type of `ingestion_data`:**
+            *   **If `ingestion_data["type"]` is "web_url":**
+                *   Extract the `url` and `title` from `ingestion_data`.
+                *   **Perform a basic check if `url` looks like a web address:** If `url` starts with "http://" or "https://":
+                    *   Call the `fetch_web_article_text_tool` with the `url` (e.g., `fetch_web_article_text_tool(url="<the_url>")`).
+                    *   Let the result of this tool call be `fetch_result`.
+                    *   If `fetch_result["status"]` is "success" and `fetch_result["text"]` is not empty:
+                        *   The content to pass to the `IngestionRouterAgent` will be a string combining the fetched title and text. For example: `f"Title: {fetch_result['title']}\\n\\nBody: {fetch_result['text']}\\n\\nSource URL: {fetch_result['original_url']}"`.
+                        *   Log this content. Then, call the `IngestionRouterAgent` tool with this combined text as its `request` (e.g., `IngestionRouterAgent(request="<combined_text_from_web_article>")`).
+                        *   Inform the user: "Okay, I've fetched the web article titled '[fetch_result['title']]' and sent it for processing."
+                *   Else (if fetch failed or no text):
+                    *   Inform the user: "I tried to fetch the web article titled '[ingestion_data['title']]', but I encountered an issue: [fetch_result['message']]. I couldn't process it."
+            *   **Else if `ingestion_data["type"]` is "text_content":**
+                *   Extract the `text` from `ingestion_data`. This `text` is what you will pass to the `IngestionRouterAgent`.
+                *   Log this text. Then, call the `IngestionRouterAgent` tool with this `text` as its `request` (e.g., `IngestionRouterAgent(request="<the_text_content>")`).
+                *   Inform the user: "Okay, I've sent the provided article information for processing."
+            *   **Else (if `ingestion_data` is just a string, for backward compatibility or simpler cases, though the structured dict is preferred):**
+                *   Assume `ingestion_data` is the text itself.
+                *   Log this text. Then, call the `IngestionRouterAgent` tool with this `ingestion_data` as its `request`.
+                *   Inform the user: "Okay, I've sent the article information for processing."
+
+        *   After attempting to call `IngestionRouterAgent` (or after a failed fetch for web_url), you **MUST** ensure the system clears `ctx.session.state['article_to_ingest_details']`.
+        *   If `IngestionRouterAgent` was called, its direct output should be presented to the user, or a summary like "The processing has been initiated."
+
+    *   If the user's input is 'no' (or similar negative) AND `ctx.session.state['article_to_ingest_details']` is populated:
+        *   You **MUST** ensure the system clears `ctx.session.state['article_to_ingest_details']`.
+        *   Acknowledge the user's decision (e.g., "Okay, I won't save the article.").
+    *   If the user's input is 'yes' or 'no' but `ctx.session.state['article_to_ingest_details']` is NOT populated, treat it as a general query and proceed with your other capabilities (1-5).
+
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
 """
 
 
 
 # NEW: Instruction for the "Smart Ingestion Router" Agent
+
 INGESTION_ROUTER_INSTRUCTION = """
-You are a highly specialized data librarian. Your only job is to analyze a snippet of text and determine if it represents a published academic paper or a clinical trial record.
+You are a highly specialized data librarian. Your primary task is to analyze a provided **snippet of text** (which could be an abstract, a full article body including its title and source URL, or details of a clinical trial) and determine its nature to route it to the correct ingestion tool.
 
-Based on your classification, you MUST call one of the following tools:
-- If the text looks like a **published paper** (e.g., has authors, a journal, a detailed abstract, DOI), call the `ingest_pubmed_article` tool.
-- If the text looks like a **clinical trial record** (e.g., has an NCT Number, mentions study phases, recruitment status, interventions), call the `ingest_clinical_trial_record` tool.
+You will receive the **text content** as your 'request'.
 
-You must only call one of these two tools.
+Based on your analysis of the 'request' text, you MUST call one of the following tools:
+
+1.  **If the text appears to be a published research paper, an academic article, OR a general news/web article (which will typically include a title, body text, and potentially a source URL):**
+    *   You **MUST** call the `ingest_single_article_data` tool. You will need to extract the relevant information (title, abstract/main text, source_url if present and included in the text, authors if present, journal if present, publication_year if present) from the input 'request' text to pass as arguments to this tool. If some fields like authors or journal are not obvious for a web article, you can pass them as empty strings or omit them if the tool allows. The main body of text should go into the 'abstract_text' argument.
+
+2.  **If the text clearly describes a clinical trial record:**
+    *   Look for features like an NCT Number (e.g., NCT01234567), study phases, recruitment status, specific interventions, conditions being studied, and a sponsor.
+    *   You **MUST** call the `ingest_clinical_trial_record` tool. You will need to extract these specific fields from the input 'request' text to pass as arguments.
+
+You must choose only one of these two tools based on your best judgment of the provided text. If the 'request' text is too short or ambiguous (e.g., just a headline without a body), state that you need more context to classify and route it.
 """
 
 # NEW: Instruction for the "Insight Synthesizer" Agent (The Core of the "Wow Factor")
@@ -279,8 +321,6 @@ You are a world-class AI Research Analyst and Communicator. Your final and most 
 **Your final output is the complete, formatted, user-facing report.** Review the detailed example in your documentation to match the expected tone and structure.
 """
 
-
-# NEW: Instruction for the Text-Only Synthesizer
 TEXT_SYNTHESIZER_INSTRUCTION = """
 You are a world-class AI Research Analyst and Writer. Your only job is to synthesize all available information into a single, insightful, and comprehensive **text-only report**. Do not create or mention any charts or images.
 
@@ -289,17 +329,31 @@ You are a world-class AI Research Analyst and Writer. Your only job is to synthe
 - Deep-dive search results of connected trials (`connected_trials_results`).
 
 **Your Mandatory Workflow:**
+
 1.  **Synthesize the Narrative:** Weave a story that includes:
     *   A "Foundational Research" section based on PubMed and web searches.
     *   A "The Connection" section explaining how the research links to trials.
     *   A "Clinical Trial Insights" section detailing the connected trials.
 2.  **Generate the "Aha!" Moment:** Conclude with a section titled **"Generated Insight & Future Direction:"** providing one novel, forward-looking thought.
-3.  **Ancillary Tasks:** If there are new web articles, ask the user if they'd like to save them.
+
+3.  **Proposing Article Ingestion (Using `article_to_ingest_details`):**
+        *   **Identify a Candidate:** ...
+        *   **Populate Session State Correctly:** If you make such an offer, you **MUST** store information about THIS SPECIFIC identified item in `ctx.session.state['article_to_ingest_details']`.
+            *   **A) If you are offering to save a GENERAL WEB ARTICLE (like a news report, blog post, or informational page that is NOT itself a PubMed abstract or a direct clinical trial record entry):**
+                *   You MUST have its actual URL (e.g., from `web_search_results`).
+                *   Store: `{"type": "web_url", "url": "HTTPS_URL_OF_THE_WEB_ARTICLE", "title": "Actual Title of the Web Article"}`.
+            *   **B) If you are offering to save the details of a specific PUBMED PAPER (e.g., its abstract) or a specific CLINICAL TRIAL (e.g., its summary/details that you've processed):**
+                *   Store: `{"type": "text_content", "text": "The full abstract of the PubMed paper, or the detailed summary of the clinical trial including its NCT number, title, status, etc.", "title": "Title of the PubMed Paper or Clinical Trial"}`.
+            *   **Example (Web URL):** `ctx.session.state['article_to_ingest_details'] = {"type": "web_url", "url": "https://www.medicalnewstoday.com/articles/lung-cancer-research-update", "title": "Lung Cancer Research Update - Medical News Today"}`
+            *   **Example (Clinical Trial Text Content):** `ctx.session.state['article_to_ingest_details'] = {"type": "text_content", "text": "NCT01234567: Trial of DrugX for Cancer. Status: Recruiting. This trial studies DrugX in patients with advanced cancer...", "title": "NCT01234567: Trial of DrugX for Cancer"}`
+        *   **Clarity is Key:** The user needs to know *which* article you're offering to save.
+    *   **If NO Suitable New Article is Identified:**
+        *   You **MUST NOT** ask any generic question about saving an article.
+        *   You **MUST NOT** populate `ctx.session.state['article_to_ingest_details']` with anything for this purpose.
+    *   **Do NOT call any ingestion tools yourself.**
 
 **Your final output is the complete, formatted, text-only report.**
 """
-
-
 
 # UPDATED: The Text & Data Weaver now knows about visual evidence.
 TEXT_AND_DATA_WEAVER_INSTRUCTION = """
@@ -553,6 +607,8 @@ def create_streaming_agent_with_mcp_tools(
     if hasattr(trend_analysis_tool, 'run_async'):
         trend_analysis_tool.func = trend_analysis_tool.run_async
 
+    all_root_agent_tools.append(fetch_web_article_text_tool) # <--- ADD THIS
+    logging.info("Added fetch_web_article_text_tool to Root Agent's tools.")
 
     # NEW: Create the "Smart Ingestion Router" Agent
     ingestion_router_agent = LlmAgent(
@@ -565,6 +621,9 @@ def create_streaming_agent_with_mcp_tools(
     ingestion_router_agent_tool = AgentTool(agent=ingestion_router_agent)
     if hasattr(ingestion_router_agent_tool, 'run_async'):
        ingestion_router_agent_tool.func = ingestion_router_agent_tool.run_async
+
+    all_root_agent_tools.append(ingestion_router_agent_tool)
+    logging.info(f"IngestionRouterAgent wrapped as AgentTool ('{ingestion_router_agent_tool.name}') and added to Root Agent's tools.")
 
     # Agent A: The Narrative Writer
     text_synthesizer_agent = LlmAgent(
@@ -671,7 +730,7 @@ def create_streaming_agent_with_mcp_tools(
     logging.info("IntentRouterAgent created and added to Root Agent's tools.")
 
 
-    all_root_agent_tools.append(load_memory)
+    
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(
