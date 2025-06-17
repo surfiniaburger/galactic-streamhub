@@ -21,4 +21,5 @@ dependencies = [
     "firebase-admin>= 6.9.0",
     "google-cloud-texttospeech>=2.27.0",
     "pydicom >= 3.0.1",
+    "newspaper3k>=0.2.8",
 ]
