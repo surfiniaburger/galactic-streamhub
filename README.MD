@@ -77,7 +77,10 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   `EnvironmentalMonitorAgent`: Identifies contextual keywords from visual input and user hints.
     *   `ContextualPrecomputationAgent`: If a proactive context is identified, this agent formulates a suggestion and can use tools (including the `GoogleSearchAgentTool` or MCP tools like CocktailDB) to pre-fetch data.
     *   `ReactiveTaskDelegatorAgent`: Handles direct user requests or tasks following an accepted proactive suggestion. It can use MCP tools or the `GoogleSearchAgentTool` as needed.
-    *   `PubMedRAGAgent`: If a query is biomedical, AVA delegates to this agent. It uses sub-agents (`LocalPubMedSearchAgent`, `WebPubMedSearchAgent`, `ClinicalTrialsSearchAgent`, `OpenFDASearchAgent` running in parallel via `ResearchOrchestratorAgent`) to gather information, then synthesizes it and offers to save new web findings.
+    *   **If General Research Synthesis**: Delegates to `MasterResearchSynthesizer`. This agent sequentially:
+        *   Runs `DataGatheringAndConnectionAgent`: This involves parallel searches by `ResearchOrchestratorAgent` (across PubMed, web, local clinical trials DB, OpenFDA), followed by `KeyInsightExtractorAgent` and `TrialConnectorAgent`.
+        *   Runs `ParallelSynthesisAgent`: This involves parallel work by `TextSynthesizerAgent` (generates text, can propose ingestion via `IngestionRouterAgentTool`), `ChartProducerAgent` (uses `VisualizationAgentTool`), and `ImageEvidenceProducerAgent` (uses `MultimodalEvidenceAgentTool` to find and prepare medical image URLs).
+        *   Runs `FinalReportAggregatorAgent`: Combines all synthesized parts into the final response.
     *   `VisualizationAgent`: If the user requests a visualization, this agent is triggered to create a chart from the provided data.
 5.  **Specialized Search Agents:**
     *   `GoogleSearchAgentTool`: An `LlmAgent` for general web searches, available as a tool.
@@ -310,7 +313,10 @@ To deploy this application to Google Cloud Run:
 ├── README.md                   # This file
 ├── agent_config.py             # Defines ADK agents, tools, and their configurations
 ├── proactive_agents.py         # Defines the ProactiveContextOrchestratorAgent and its sub-agents
-├── google_search_agent/        # Directory for the Google Search agent
+├── google_search_agent/  
+├── pubmed_pipeline.py          # Logic for querying PubMed and ingesting articles
+├── ingest_clinical_trials.py   # Logic for ingesting clinical trial data
+├── ingest_multimodal_data.py   # Logic for finding similar medical images      # Directory for the Google Search agent
 │   └── agent.py
 ├── openfda_pipeline.py         # Logic for querying OpenFDA API
 ├── clinical_trials_pipeline.py # Logic for querying ClinicalTrials.gov API
@@ -319,7 +325,9 @@ To deploy this application to Google Cloud Run:
 │   ├── cocktail.py             # MCP server for cocktail recipes
 │   └── weather_server.py
 ├── tools/                      # Directory for agent tools
-│   └── chart_tool.py           # Tool for creating data visualizations
+│   └── chart_tool.py           # Tool 
+for creating data visualizations
+    └── web_utils.py            # Utility for fetching web article text
 ├── requirements.txt            # Python dependencies
 └── static/                     # Frontend assets
     ├── css/
