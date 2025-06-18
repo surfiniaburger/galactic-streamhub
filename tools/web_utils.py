@@ -34,6 +34,7 @@ def fetch_web_article_text_tool(url: str) -> dict:
         }
     """
     logging.info(f"Attempting to fetch web article content from URL: {url}")
+    print(f"Attempting to fetch web article content from URL: {url}")
 
     try:
         article = Article(url, fetch_images=False, memoize_articles=True) # fetch_images=False for speed
@@ -45,6 +46,7 @@ def fetch_web_article_text_tool(url: str) -> dict:
 
         if not extracted_text:
             logging.warning(f"Newspaper3k could not extract text for: {url}")
+            print(f"Newspaper3k could not extract text for: {url}")
             return {
                 "status": "error",
                 "title": extracted_title, # Might still get a title
@@ -54,6 +56,7 @@ def fetch_web_article_text_tool(url: str) -> dict:
             }
 
         logging.info(f"Successfully fetched text for article: '{extracted_title}' from {url}")
+        print(f"Successfully fetched text for article: '{extracted_title}' from {url}")
         return {
             "status": "success",
             "title": extracted_title,
@@ -64,6 +67,7 @@ def fetch_web_article_text_tool(url: str) -> dict:
 
     except ArticleException as e:
         logging.error(f"Newspaper3k ArticleException for URL {url}: {e}")
+        print(f"Newspaper3k ArticleException for URL {url}: {e}")
         return {
             "status": "error",
             "title": None,
@@ -73,6 +77,7 @@ def fetch_web_article_text_tool(url: str) -> dict:
         }
     except requests.exceptions.RequestException as e:
         logging.error(f"Network error (requests.exceptions.RequestException) for URL {url}: {e}")
+        print(f"Network error (requests.exceptions.RequestException) for URL {url}: {e}")
         return {
             "status": "error",
             "title": None,
@@ -82,6 +87,7 @@ def fetch_web_article_text_tool(url: str) -> dict:
         }
     except Exception as e:
         logging.error(f"An unexpected error occurred while fetching web article {url}: {e}", exc_info=True)
+        print(f"An unexpected error occurred while fetching web article {url}: {e}")
         return {
             "status": "error",
             "title": None,
