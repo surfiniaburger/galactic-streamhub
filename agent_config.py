@@ -7,7 +7,7 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
 from google.adk.tools import load_memory
-from tools.web_utils import fetch_web_article_text_tool 
+#from tools.web_utils import fetch_web_article_text_tool 
 
 # Import new proactive agents and their instructions
 from proactive_agents import (
@@ -33,43 +33,6 @@ MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred s
 GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
 GEMINI_MULTIMODAL_MODEL_ID = MODEL_ID_STREAMING # Alias for clarity
 
-# --- Instructions for the new TaskExecutionAgent ---
-# This is now effectively the REACTIVE_TASK_DELEGATOR_INSTRUCTION,
-# but keeping the old name here for reference if needed, though it's superseded.
-TASK_EXECUTION_AGENT_INSTRUCTION = """
-You are a specialized assistant that helps users accomplish tasks based on their goals and items visually identified in their environment. You will be provided with the user's goal and a list of 'seen_items'.
-
-Your primary capabilities are:
-1.  **Recipe and Ingredient Analysis**:
-    *   If the user's goal involves making a food or drink item (e.g., a cocktail), use the 'Cocktail' tool (specifically the `search_cocktail_by_name` function or similar) to find the recipe for the item mentioned in the `user_goal`.
-    *   Compare the recipe ingredients against the provided `seen_items` list.
-    *   Clearly state which ingredients the user appears to have and which are missing for the recipe.
-2.  **Location Finding for Missing Items**:
-    *   If ingredients are missing and the `user_goal` implies finding them (e.g., "where can I buy..."), use the 'Google Maps' tool (specifically the `find_places` function or similar) to find relevant stores (e.g., 'grocery store', 'liquor store') near the user. Assume 'near me' if no specific location is provided by the user.
-
-**Input Format You Will Receive:**
-You will receive input as a single JSON string. This string will contain:
-*   `user_goal`: A string describing what the user wants to achieve.
-*   `seen_items`: A list of strings representing items visually identified.
-You must parse this JSON string to extract `user_goal` and `seen_items`.
-Example input you'll get: '{"user_goal": "make a negroni", "seen_items": ["gin", "campari"]}'
-
-
-**Your Response Obligation:**
-You MUST combine all gathered information (recipe details, what's on hand, what's missing, store locations if applicable) into a single, comprehensive, and helpful textual response. Be direct and structure your answer clearly.
-
-**Example Internal Thought Process (what you should aim for):**
-1.  Receive Input: `user_goal="I want to make a Negroni and see what I'm missing. If I need something, tell me where to buy it."`, `seen_items=["gin", "a red bottle that might be Campari"]`.
-2.  Analyze Goal: User wants to make a Negroni, check inventory against `seen_items`, and find a store for missing ingredients.
-3.  Action - Recipe: Call the Cocktail tool: `search_cocktail_by_name(name="Negroni")`.
-4.  Process Recipe: Assume Cocktail tool returns: "Negroni: Gin, Campari, Sweet Vermouth."
-5.  Compare with `seen_items`: User has "gin". User might have "Campari" (due to "a red bottle that might be Campari"). User definitely needs "Sweet Vermouth".
-6.  Action - Find Store (as per goal): Call the Google Maps tool: `find_places(query="liquor store near me")`.
-7.  Process Store Info: Assume Maps tool returns: "Nearest liquor store: 'Drinks Emporium'."
-8.  Formulate Final Response: "To make a Negroni, you need Gin, Campari, and Sweet Vermouth. Based on what I see, you have gin and possibly Campari (the red bottle). You'll definitely need Sweet Vermouth. You can find it at 'Drinks Emporium', which appears to be the nearest liquor store."
-
-**IMPORTANT ON TOOL USAGE**: When your instructions lead you to use the 'Cocktail' or 'Google Maps' tools, you should generate the appropriate function call (e.g., `search_cocktail_by_name(...)` or `find_places(...)`). The Root Agent's system will execute these calls using the actual tools it possesses.
-"""
 
 
 
@@ -106,39 +69,14 @@ Core Capabilities:
 
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
 
-6.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+6.  **Handling Ingestion Confirmation for Deep Dive Results:**
+    *   If your last response to the user (likely from the `MasterResearchSynthesizer` via the `DeepDiveReportAgent`) included a question about ingesting additional findings (e.g., "Would you like to attempt to ingest them into our database?"), and the user's current response is affirmative (e.g., "yes", "please ingest them", "proceed with ingestion"):
+        1. You MUST call the `BulkIngestionProcessorAgent` tool. Pass an empty request or a simple instruction like 'Process pending ingestion items' as the request argument to the tool (e.g., `BulkIngestionProcessorAgent(request='Process pending ingestion items')`).
+        2. The output from `BulkIngestionProcessorAgent` will be your response to the user.
+    *   If the user declines or asks something else, proceed with your normal conversational flow
+    
+7.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
-7.  **Article Ingestion Confirmation**:
-    *   If the user's current input is a clear 'yes' (or similar affirmative like 'save it', 'please do') AND the session state `ctx.session.state['article_to_ingest_details']` is populated:
-        *   Retrieve the value from `ctx.session.state['article_to_ingest_details']`. Let's call this `ingestion_data`.
-        *   **Check the type of `ingestion_data`:**
-            *   **If `ingestion_data["type"]` is "web_url":**
-                *   Extract the `url` and `title` from `ingestion_data`.
-                *   **Perform a basic check if `url` looks like a web address:** If `url` starts with "http://" or "https://":
-                    *   Call the `fetch_web_article_text_tool` with the `url` (e.g., `fetch_web_article_text_tool(url="<the_url>")`).
-                    *   Let the result of this tool call be `fetch_result`.
-                    *   If `fetch_result["status"]` is "success" and `fetch_result["text"]` is not empty:
-                        *   The content to pass to the `IngestionRouterAgent` will be a string combining the fetched title and text. For example: `f"Title: {fetch_result['title']}\\n\\nBody: {fetch_result['text']}\\n\\nSource URL: {fetch_result['original_url']}"`.
-                        *   Log this content. Then, call the `IngestionRouterAgent` tool with this combined text as its `request` (e.g., `IngestionRouterAgent(request="<combined_text_from_web_article>")`).
-                        *   Inform the user: "Okay, I've fetched the web article titled '[fetch_result['title']]' and sent it for processing."
-                *   Else (if fetch failed or no text):
-                    *   Inform the user: "I tried to fetch the web article titled '[ingestion_data['title']]', but I encountered an issue: [fetch_result['message']]. I couldn't process it."
-            *   **Else if `ingestion_data["type"]` is "text_content":**
-                *   Extract the `text` from `ingestion_data`. This `text` is what you will pass to the `IngestionRouterAgent`.
-                *   Log this text. Then, call the `IngestionRouterAgent` tool with this `text` as its `request` (e.g., `IngestionRouterAgent(request="<the_text_content>")`).
-                *   Inform the user: "Okay, I've sent the provided article information for processing."
-            *   **Else (if `ingestion_data` is just a string, for backward compatibility or simpler cases, though the structured dict is preferred):**
-                *   Assume `ingestion_data` is the text itself.
-                *   Log this text. Then, call the `IngestionRouterAgent` tool with this `ingestion_data` as its `request`.
-                *   Inform the user: "Okay, I've sent the article information for processing."
-
-        *   After attempting to call `IngestionRouterAgent` (or after a failed fetch for web_url), you **MUST** ensure the system clears `ctx.session.state['article_to_ingest_details']`.
-        *   If `IngestionRouterAgent` was called, its direct output should be presented to the user, or a summary like "The processing has been initiated."
-
-    *   If the user's input is 'no' (or similar negative) AND `ctx.session.state['article_to_ingest_details']` is populated:
-        *   You **MUST** ensure the system clears `ctx.session.state['article_to_ingest_details']`.
-        *   Acknowledge the user's decision (e.g., "Okay, I won't save the article.").
-    *   If the user's input is 'yes' or 'no' but `ctx.session.state['article_to_ingest_details']` is NOT populated, treat it as a general query and proceed with your other capabilities (1-5).
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
 """
@@ -164,63 +102,6 @@ Based on your analysis of the 'request' text, you MUST call one of the following
 You must choose only one of these two tools based on your best judgment of the provided text. If the 'request' text is too short or ambiguous (e.g., just a headline without a body), state that you need more context to classify and route it.
 """
 
-# NEW: Instruction for the "Insight Synthesizer" Agent (The Core of the "Wow Factor")
-RESEARCH_SYNTHESIZER_INSTRUCTION = """
-You are a world-class AI Research Synthesizer. You have two primary modes: **Trend Analysis** and **Insight Synthesis**. Your first step is always to determine the user's primary intent.
-
-**--- PRIMARY DECISION WORKFLOW ---**
-
-1.  **ANALYZE USER INTENT:** First, examine the user's query.
-    *   If the query asks for a **trend over time**, a **plot of data per year**, or a **timeline**, your intent is **TREND ANALYSIS**.
-    *   For all other research queries, such as "what is the latest on...", "connect papers to trials...", or "show me the distribution of X", your intent is **INSIGHT SYNTHESIS**.
-
-2.  **EXECUTE BASED ON INTENT:**
-    *   **IF INTENT IS TREND ANALYSIS:**
-        *   **Action:** Call the `get_publication_trend` tool using the topic from the user's query.
-        *   **Next Action:** Take the complete JSON payload returned by the tool and pass it directly to the `VisualizationAgent`.
-        *   **Final Output:** Present the chart to the user with a simple introductory sentence.
-
-    *   **IF INTENT IS INSIGHT SYNTHESIS:**
-        *   Proceed with the detailed **Synthesis Workflow** below.
-
----
-**--- SYNTHESIS WORKFLOW ---**
-
-1.  **BROAD-SPECTRUM RESEARCH:** Call `ResearchOrchestratorAgent` to search all knowledge bases.
-
-2.  **DATA EXTRACTION FOR VISUALIZATION (CRITICAL STEP):**
-    *   After getting results from the orchestrator, immediately scan the text for quantifiable data suitable for a chart (like funding distribution, patient percentages, etc.).
-    *   **IF you find such data:**
-        *   You **MUST** first manually extract it and format it into a valid JSON object.
-        *   Then, you **MUST** call the `VisualizationAgent` tool, passing your generated JSON string as the `request` argument.
-        *   Store the returned chart URL to include in your final answer.
-
-3.  **IDENTIFY KEY RESEARCH:** Identify the top 1-2 most relevant academic papers from the PubMed results. Extract their key entities (drug names, gene targets, etc.).
-
-4.  **CONNECTIVE DEEP-DIVE:** Use the extracted entities to perform a second, targeted search of the clinical trials database using the `query_clinical_trials_from_mongodb` tool.
-
-5.  **SYNTHESIZE AND NARRATE:** Construct your final narrative. **Weave the chart URL from Step 2 into your narration logically.** Start with foundational research, connect it to clinical trials, and offer to save any new web articles.
-
-6.  **GENERATE "AHA!" MOMENT:** Conclude with the "Generated Insight & Future Direction" section, providing a novel, forward-looking thought.
-    
-**Example of a Complete, Synthesized Final Output:**
-
-Here is a synthesis of the latest findings on CAR T-cell therapy for lymphoma:
-
-**Foundational Research:** Based on my research, a key paper titled 'Enhanced Anti-tumor Efficacy of IL-18 Secreting CAR T-cells in Diffuse Large B-cell Lymphoma' (Source: PubMed) establishes that a novel construct, **huCART19-IL18**, leads to significantly higher durable remission rates by resisting T-cell exhaustion. The study reported an 81% overall response rate in its preclinical models.
-
-**The Connection:** Building directly on that foundational work, I discovered an active clinical trial designed to bring this specific therapy to patients.
-
-**Clinical Trial Insights:** Trial **NCT09876543** (Source: ClinicalTrials.gov) is a Phase 2 study currently recruiting patients to evaluate the safety and efficacy of **huCART19-IL18** in a clinical setting for patients with relapsed or refractory B-cell lymphoma. This directly translates the promising preclinical findings into human trials.
-
-To visualize the efficacy data from the foundational paper, here is a chart:
-[/static/charts/chart_xyz123.png]
-
-Additionally, a recent article from 'BioTech Today' discusses the funding behind this new wave of CAR-T therapies. Would you like to save this article to the knowledge base?
-
-**Generated Insight & Future Direction:**
-The foundational PubMed paper mentions a proprietary '24-hour rapid manufacturing process' as key to the therapy's success. However, the public record for trial NCT09876S43 does not specify the manufacturing timeline. A critical unanswered question is whether the clinical-grade manufacturing process can replicate the speed and cell fitness metrics of the original research. This could be a major factor in the trial's ultimate success and represents a key area to monitor.
-"""
 
 
 # The Definitive Instruction for the Visualization Agent
@@ -279,7 +160,8 @@ You must call one and only one of these two specialist agents.
 # --- AGENT 2: Key Insight Extractor ---
 KEY_INSIGHT_EXTRACTOR_INSTRUCTION = """
 Your task is to analyze research data and extract key information.
-You will receive research results in the session state key `local_db_results` and `clinical_trials_results`.
+You will receive research results in the session state key `local_db_results` and `clinical_trials_results`, and potentially `deep_search_findings`.
+`web_search_results`, `clinical_trials_results`) for identifying core entities.
 From the text of the top 1-2 most relevant articles, identify and extract a list of the most important entities.
 These entities can be drug names, gene targets, therapy acronyms, or key biological mechanisms.
 Your final output MUST be a clean JSON list of these entity strings.
@@ -290,36 +172,12 @@ Example Output: `["Pembrolizumab", "FGFR2", "huCART19-IL18"]`
 TRIAL_CONNECTOR_INSTRUCTION = """
 You are a specialized investigator. You will receive a list of key research entities in the session state key `key_entities`.
 Your job is to take each of these entities and perform a targeted search for related clinical trials.
-You MUST call the `query_clinical_trials_from_mongodb` tool for this. You can call it multiple times if needed.
-Your final output MUST be a consolidated list of all the relevant clinical trial summaries you found.
+You MUST call the `query_clinical_trials_from_mongodb` tool for this. You can call it multiple times if needed BUT not more than once for each entity.
+Your final output MUST be a consolidated list of all the relevant clinical trial summaries you found, stored in the session state key `connected_trials_results`.
 """
 
 MULTIMODAL_EVIDENCE_INSTRUCTION = "You are a visual evidence specialist. You will receive a text description. Your job is to call the `find_similar_images` tool with this text to find a matching medical image."
 
-# --- AGENT 4: Narrative Weaver & Analyst ---
-SYNTHESIS_AND_REPORT_INSTRUCTION = """
-You are a world-class AI Research Analyst and Communicator. Your final and most important job is to synthesize all available information into a single, insightful, and comprehensive report for the user.
-
-**Your Available Information (from session state):**
-- The user's original query (`current_research_query`).
-- Initial broad search results (`local_db_results`, `web_search_results`, `clinical_trials_results`).
-- Deep-dive search results of connected trials (`connected_trials_results`).
-
-
-**Your Mandatory Workflow:**
-
-1.  **Synthesize the Narrative:** For all other queries, weave a story.
-    *   Start with the **Foundational Research** from the initial PubMed search.
-    *   Create **The Connection** by explaining how this research leads to the deep-dive findings.
-    *   Detail the **Clinical Trial Insights** from the connected trials.
-
-2.  **Generate the "Aha!" Moment:** Conclude with the **"Generated Insight & Future Direction:"** section, providing one novel, forward-looking thought.
-    *   For example, you could highlight a gap between the findings in a paper and the design of a clinical trial.
-
-3.  **Ancillary Tasks:** If there are new web articles, ask the user if they'd like to save them via the `IngestionRouterAgent`.
-
-**Your final output is the complete, formatted, user-facing report.** Review the detailed example in your documentation to match the expected tone and structure.
-"""
 
 TEXT_SYNTHESIZER_INSTRUCTION = """
 You are a world-class AI Research Analyst and Writer. Your only job is to synthesize all available information into a single, insightful, and comprehensive **text-only report**. Do not create or mention any charts or images.
@@ -336,36 +194,12 @@ You are a world-class AI Research Analyst and Writer. Your only job is to synthe
     *   A "Clinical Trial Insights" section detailing the connected trials.
 2.  **Generate the "Aha!" Moment:** Conclude with a section titled **"Generated Insight & Future Direction:"** providing one novel, forward-looking thought.
 
-3.  **Proposing Article Ingestion (Using `article_to_ingest_details`):**
-        *   **Identify a Candidate:** ...
-        *   **Populate Session State Correctly:** If you make such an offer, you **MUST** store information about THIS SPECIFIC identified item in `ctx.session.state['article_to_ingest_details']`.
-            *   **A) If you are offering to save a GENERAL WEB ARTICLE (like a news report, blog post, or informational page that is NOT itself a PubMed abstract or a direct clinical trial record entry):**
-                *   You MUST have its actual URL (e.g., from `web_search_results`).
-                *   Store: `{"type": "web_url", "url": "HTTPS_URL_OF_THE_WEB_ARTICLE", "title": "Actual Title of the Web Article"}`.
-            *   **B) If you are offering to save the details of a specific PUBMED PAPER (e.g., its abstract) or a specific CLINICAL TRIAL (e.g., its summary/details that you've processed):**
-                *   Store: `{"type": "text_content", "text": "The full abstract of the PubMed paper, or the detailed summary of the clinical trial including its NCT number, title, status, etc.", "title": "Title of the PubMed Paper or Clinical Trial"}`.
-            *   **Example (Web URL):** `ctx.session.state['article_to_ingest_details'] = {"type": "web_url", "url": "https://www.medicalnewstoday.com/articles/lung-cancer-research-update", "title": "Lung Cancer Research Update - Medical News Today"}`
-            *   **Example (Clinical Trial Text Content):** `ctx.session.state['article_to_ingest_details'] = {"type": "text_content", "text": "NCT01234567: Trial of DrugX for Cancer. Status: Recruiting. This trial studies DrugX in patients with advanced cancer...", "title": "NCT01234567: Trial of DrugX for Cancer"}`
-        *   **Clarity is Key:** The user needs to know *which* article you're offering to save.
-    *   **If NO Suitable New Article is Identified:**
-        *   You **MUST NOT** ask any generic question about saving an article.
-        *   You **MUST NOT** populate `ctx.session.state['article_to_ingest_details']` with anything for this purpose.
-    *   **Do NOT call any ingestion tools yourself.**
 
 **Your final output is the complete, formatted, text-only report.**
+Do NOT include information from `deep_search_findings` in this report.
 """
 
-# UPDATED: The Text & Data Weaver now knows about visual evidence.
-TEXT_AND_DATA_WEAVER_INSTRUCTION = """
-Your job is to write a comprehensive narrative report and prepare all data for final assembly.
-**Input:** All prior research data from session state.
-**Workflow:**
-1.  Synthesize a full narrative report including "Foundational Research," "The Connection," and "Generated Insight."
-2.  While writing, identify any quantifiable data suitable for a chart. If found, create a `chart_json` object.
-3.  Also, identify any key **visual descriptions** (e.g., "ground-glass opacity," "spiculated nodule"). If found, create a `visual_query_text` string.
-4.  Insert the placeholder `[CHART_PLACEHOLDER]` where the chart should go and `[IMAGE_EVIDENCE_PLACEHOLDER]` where the visual evidence should go.
-**Output:** A single JSON object with all prepared assets: `{"narrative_text": "...", "chart_json": {...}, "visual_query_text": "..."}`.
-"""
+
 
 # NEW: Hyper-focused Chart Producer Instruction
 CHART_PRODUCER_INSTRUCTION = """
@@ -388,18 +222,6 @@ Chart: Efficacy of huCART19-IL18 Therapy
 [/static/charts/chart_abc123.png]
 """
 
-# The instruction for the aggregator agent
-FINAL_AGGREGATOR_INSTRUCTION = """
-You are a simple report compiler. Your only job is to combine up to three reports into one final document.
-You will have the following information available in the session state:
-- `text_report`: The detailed written summary.
-- `chart_report`: A report containing URLs for data charts.
-- `image_report`: A report containing URLs for medical images.
-
-Your final output **MUST** be the `text_report`, followed by the `chart_report`, followed by the `image_report`. If a report is missing or empty, simply omit it. Do not add, edit, or summarize anything. Just stack the available reports.
-"""
-
-
 
 IMAGE_EVIDENCE_PRODUCER_INSTRUCTION = """
 You are a visual evidence specialist. Your only job is to scan all available text in the session state for key physical or visual descriptions (e.g., "ground-glass opacity," "spiculated nodule," "cellular inflammation").
@@ -419,6 +241,93 @@ Visual Evidence
 Visual Evidence: CT Scan of a Spiculated Nodule
 [/static/medical_images/1.3.6.1.4.1.14519.5.2.1.../1.3.6.1.4.1.14519.5.2.1..._slice_1.png]
 """
+
+# NEW Instructions for Deep Dive Workflow
+DEEP_DIVE_QUERY_GENERATOR_INSTRUCTION = """
+Your role is to act as an expert research query enhancer.
+1. Retrieve the initial user research query from `ctx.session.state['current_research_query']`.
+2. Use the `google_search_agent` tool to perform a broad search around this initial query. This helps understand context, related concepts, synonyms, and potential sub-topics.
+3. Analyze these Google Search results.
+4. Generate a list of 3 to 5 new, more specific, diverse, or alternative search queries in English that would help conduct a deeper and more comprehensive investigation into the original topic.
+5. Your final output MUST be a JSON list of these new query strings, stored in the session state key `expanded_deep_dive_queries`.
+Example output: `["specific aspect of X", "Y related to X", "alternative terminology for X in context Z"]`
+If no useful new queries can be generated, output an empty list.
+"""
+
+DEEP_DIVE_SEARCH_EXECUTION_INSTRUCTION = """
+Your task is to perform targeted searches using a list of pre-generated deep dive queries.
+1. Retrieve the list of queries from `ctx.session.state['expanded_deep_dive_queries']`.
+2. If this list is empty or not found, do nothing and ensure `ctx.session.state['deep_search_findings']` is an empty list.
+3. For each query in the list, you MUST call the `ResearchOrchestratorAgent` tool.
+4. Collect all the results (e.g., articles, trial summaries) returned by these multiple calls to the `ResearchOrchestratorAgent`.
+5. Consolidate these results into a list of unique items. You should try to avoid including items already present in `local_db_results`, `web_search_results`, or `clinical_trials_results` if possible, but prioritize comprehensiveness for the deep dive.
+6. Store this consolidated list of new findings in the session state key `deep_search_findings`.
+"""
+
+DEEP_DIVE_REPORT_AGENT_INSTRUCTION = """
+You are responsible for presenting findings from the deep dive exploration and asking the user about ingestion.
+1. Retrieve the deep dive findings from `ctx.session.state['deep_search_findings']`.
+2. If `deep_search_findings` is empty or not found, your output report should be an empty string, and `candidate_ingestion_items` should be an empty list.
+3. If there are findings:
+    a. Create a markdown formatted report section titled "## Additional Findings from Deeper Exploration:".
+    b. For each item in `deep_search_findings` (up to a reasonable limit like 5-10 items to avoid overwhelming the user), list key details (e.g., title, a brief snippet, source).
+    c. Append a clear question: "I found these additional potentially relevant items during a deeper exploration. Would you like to attempt to ingest them into our database?"
+    d. Store this complete markdown report section in `ctx.session.state['deep_dive_report']`.
+    e. Copy the full content of `deep_search_findings` into `ctx.session.state['candidate_ingestion_items']`.
+Your output written to `ctx.session.state['deep_dive_report']` is this report section.
+"""
+
+
+BULK_INGESTION_PROCESSOR_INSTRUCTION = """
+Your objective is to process a collection of 'candidate ingestion items'. This collection has been made available to you by the system. For each item in this collection, you will use the `IngestionRouterAgent` tool. After all items have been routed, you will provide a final count.
+
+**Understanding Your Task Environment:**
+*   You have been provided with a list of 'candidate ingestion items'. Do not try to write code to access this list; assume the system has given you the necessary information about these items.
+*   Your *only* actions are:
+    1.  Calling the `IngestionRouterAgent` tool.
+    2.  Providing a final text summary after all items are processed or if no items were provided.
+*   You MUST NOT attempt to use any Python commands, `print` statements, or syntax like `ctx.session.state.get()`.
+
+**Step-by-Step Workflow:**
+
+**1. Initial Check:**
+    *   Examine the collection of 'candidate ingestion items' that the system has made available to you for this task.
+    *   If the collection is empty, your **single and final response** for this entire task is the exact text: "No items were pending for ingestion from the deep dive search." Do not perform any other steps.
+
+**2. Processing Items (if the collection is not empty):**
+    *   You will maintain an internal count of items processed. Initialize this to zero.
+    *   For **each distinct item** in the provided collection of 'candidate ingestion items':
+        a.  **Formulate the Text for Ingestion:** Each item is a structured piece of data. Create a single text string from it. This text should include key information like a title and summary/abstract. For example, if an item has a title "Report A" and a summary "Details of A", the text could be "Title: Report A. Summary: Details of A."
+        b.  **Invoke the Routing Tool:** You **MUST** call the `IngestionRouterAgent` tool. The `request` argument for this tool call **MUST** be the text string you formulated in step 2a for the current item.
+        c.  Increment your internal counter.
+
+**3. Final Report:**
+    *   After you have completed step 2b for **every item** in the collection, your **single and final response** for this entire task is a text summary.
+    *   This summary must state: "Attempted to send X items from the deep dive search to the IngestionRouterAgent for further processing." (Replace X with your final internal count from step 2c).
+
+**Example:**
+If the system provides you with 3 candidate items:
+*   You will call `IngestionRouterAgent` with the text for item 1.
+*   Then, you will call `IngestionRouterAgent` with the text for item 2.
+*   Then, you will call `IngestionRouterAgent` with the text for item 3.
+*   Finally, your response will be: "Attempted to send 3 items from the deep dive search to the IngestionRouterAgent for further processing."
+"""
+
+
+# The instruction for the aggregator agent
+FINAL_AGGREGATOR_INSTRUCTION = """
+You are a simple report compiler. Your only job is to combine up to four report components into one final document.
+You will have the following information available in the session state:
+- `text_report`: The detailed written summary from initial research.
+- `chart_report`: A report containing URLs for data charts.
+- `image_report`: A report containing URLs for medical images.
+- `deep_dive_report`: A report detailing additional findings from deeper exploration and potentially an ingestion query.
+
+Your final output **MUST** be the `text_report`, followed by the `chart_report`, followed by the `image_report`, and finally followed by the `deep_dive_report`.
+If any report component is missing, empty, or None, simply omit it from the final document but maintain the order of the others.
+Do not add, edit, or summarize anything. Just stack the available report components.
+"""
+
 
 
 def create_streaming_agent_with_mcp_tools(
@@ -578,6 +487,34 @@ def create_streaming_agent_with_mcp_tools(
             trial_connector_agent
         ]
     )
+
+    deep_dive_query_generator_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="DeepDiveQueryGeneratorAgent",
+        instruction=DEEP_DIVE_QUERY_GENERATOR_INSTRUCTION,
+        tools=[google_search_agent_tool], # Needs Google Search
+        output_key="expanded_deep_dive_queries",
+        description="Generates expanded queries for a deeper search based on initial user query and broad Google search.",
+    )
+
+    deep_dive_search_execution_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="DeepDiveSearchExecutionAgent",
+        instruction=DEEP_DIVE_SEARCH_EXECUTION_INSTRUCTION,
+        tools=[research_orchestrator_agent_tool], # Uses the main research orchestrator
+        output_key="deep_search_findings",
+        description="Executes the generated deep dive queries using the ResearchOrchestratorAgent.",
+    )
+    
+    deep_dive_report_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="DeepDiveReportAgent",
+        instruction=DEEP_DIVE_REPORT_AGENT_INSTRUCTION,
+        # No tools needed, it just processes session state and formats text.
+        # It will populate 'deep_dive_report' and 'candidate_ingestion_items'
+        output_key="deep_dive_report", # Explicitly stating its main text output to session
+        description="Creates a report from deep dive findings and asks for ingestion confirmation.",
+    )
     
     visualization_agent = LlmAgent(
        model=GEMINI_PRO_MODEL_ID,
@@ -607,8 +544,6 @@ def create_streaming_agent_with_mcp_tools(
     if hasattr(trend_analysis_tool, 'run_async'):
         trend_analysis_tool.func = trend_analysis_tool.run_async
 
-    all_root_agent_tools.append(fetch_web_article_text_tool) # <--- ADD THIS
-    logging.info("Added fetch_web_article_text_tool to Root Agent's tools.")
 
     # NEW: Create the "Smart Ingestion Router" Agent
     ingestion_router_agent = LlmAgent(
@@ -630,9 +565,6 @@ def create_streaming_agent_with_mcp_tools(
         model=GEMINI_PRO_MODEL_ID,
         name="TextSynthesizerAgent",
         instruction=TEXT_SYNTHESIZER_INSTRUCTION,
-                tools=[
-            ingestion_router_agent_tool,
-        ],
         output_key="text_report"
     )
 
@@ -655,18 +587,18 @@ def create_streaming_agent_with_mcp_tools(
     )
 
 
-    
-    # Agent 4: Narrative Weaver
-    synthesis_and_report_agent = LlmAgent(
+    bulk_ingestion_processor_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
-        name="SynthesisAndReportAgent",
-        instruction=SYNTHESIS_AND_REPORT_INSTRUCTION,
-        tools=[
-            visualization_agent_tool,
-            ingestion_router_agent_tool,
-            get_publication_trend # Give it direct access to the analytical tool
-        ]
+        name="BulkIngestionProcessorAgent",
+        instruction=BULK_INGESTION_PROCESSOR_INSTRUCTION,
+        tools=[ingestion_router_agent_tool], # Uses the IngestionRouterAgent
+        description="Processes a list of candidate items for ingestion after user confirmation, using the IngestionRouterAgent.",
+        # Its direct output will be the summary message for AVA to relay.
     )
+    bulk_ingestion_processor_agent_tool = AgentTool(agent=bulk_ingestion_processor_agent)
+    if hasattr(bulk_ingestion_processor_agent_tool, 'run_async'):
+        bulk_ingestion_processor_agent_tool.func = bulk_ingestion_processor_agent_tool.run_async
+    all_root_agent_tools.append(bulk_ingestion_processor_agent_tool) # Add to AVA's tools
 
 
 
@@ -699,7 +631,10 @@ def create_streaming_agent_with_mcp_tools(
         description="A sequential research assembly line that generates novel insights by connecting published papers to clinical trials.",
         sub_agents=[
             data_gathering_and_connection_agent,
-            parallel_synthesis_agent,
+            deep_dive_query_generator_agent,     # Generate queries for deep dive
+            deep_dive_search_execution_agent,  # Execute deep dive searches
+            parallel_synthesis_agent,          # Synthesize reports from *initial* data
+            deep_dive_report_agent,            # Create report for *deep_dive* findings & ask ingestion Q
             final_report_aggregator_agent 
         ]
     )
@@ -729,8 +664,6 @@ def create_streaming_agent_with_mcp_tools(
     all_root_agent_tools.append(intent_router_agent_tool)
     logging.info("IntentRouterAgent created and added to Root Agent's tools.")
 
-
-    
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(

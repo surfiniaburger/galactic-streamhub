@@ -22,4 +22,5 @@ dependencies = [
     "google-cloud-texttospeech>=2.27.0",
     "pydicom >= 3.0.1",
     "newspaper3k>=0.2.8",
+    "nltk>= 3.9.1"
 ]
