@@ -6,3 +6,7 @@ app.log
 static/charts
 __pycache__*
 *__pycache__
+galatic-streamhub.yaml
+kubernetes-deployment.yaml
+kubernetes-service.yaml
+kubernetes-secrets.yaml

@@ -1,0 +1,27 @@
+# kubernetes-hpa.yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: galatic-streamhub-hpa
+  namespace: default # Same namespace as your Deployment
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: galatic-streamhub # Name of your Deployment
+  minReplicas: 1 # Minimum number of replicas
+  maxReplicas: 21 # From your autoscaling.knative.dev/maxScale annotation
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70 # Target CPU utilization (e.g., 70%)
+  # You can also add memory-based scaling or custom metrics
+  # - type: Resource
+  #   resource:
+  #     name: memory
+  #     target:
+  #       type: Utilization
+  #       averageUtilization: 70
