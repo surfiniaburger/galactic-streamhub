@@ -6,8 +6,10 @@ import logging
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
-from google.adk.tools import load_memory
 #from tools.web_utils import fetch_web_article_text_tool 
+# Import your callback functions and mongo_memory_service instance
+from mongo_memory import mongo_memory_service # If in mongo_memory.py
+from callbacks import save_interaction_after_agent_callback, load_memory_before_model_callback # If callbacks are separate
 
 # Import new proactive agents and their instructions
 from proactive_agents import (
@@ -17,6 +19,7 @@ from proactive_agents import (
     ReactiveTaskDelegatorAgent, REACTIVE_TASK_DELEGATOR_INSTRUCTION,
     VideoReportAgent 
 )
+
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
@@ -34,13 +37,11 @@ GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
 GEMINI_MULTIMODAL_MODEL_ID = MODEL_ID_STREAMING # Alias for clarity
 
 
-
-
 # --- Updated Instructions for the Root Agent ---
 ROOT_AGENT_INSTRUCTION_STREAMING = """
 Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to understand user requests, analyze their visual surroundings, and assist them. You can use tools directly for simple queries or delegate complex tasks to `ProactiveContextOrchestratorTool`.
 
-**Memory Usage:** Before processing a new request, ALWAYS consider if the user's query might relate to previous conversations. If it's a follow-up, a clarification, or refers to a topic discussed before, use the `load_memory` tool to retrieve relevant past interactions. For example, if the user says "tell me more about that drug we discussed" or "what were the results of the last trial I asked about?", you MUST use `load_memory` with a concise query based on the user's current request (e.g., "drug discussion", "last trial results"). Integrate any retrieved memory into your understanding and response. If `load_memory` returns nothing or irrelevant information, proceed with the current request as new.
+**Memory Usage:** I will provide you with relevant recent history from our conversation. Use this history to understand context, follow-ups, and clarifications.
 
 Core Capabilities:
 1.  **Visual Scene Analysis (Multimodal Perception)**:
@@ -721,6 +722,12 @@ def create_streaming_agent_with_mcp_tools(
         name="mcp_streaming_assistant", # As defined in your original setup
         instruction=ROOT_AGENT_INSTRUCTION_STREAMING,
         tools=all_root_agent_tools, # Contains MCPToolsets + ProactiveContextOrchestratorTool
+        # --- REGISTER YOUR CUSTOM CALLBACKS ---
+        before_agent_callback=load_memory_before_model_callback,
+        after_agent_callback=save_interaction_after_agent_callback,
+        # You can also use before_agent_callback for memory loading if you
+        # want to potentially skip the agent's logic entirely based on memory.
+        # after_model_callback could also be used for saving, giving access to LlmResponse directly.
     )
 
     logging.info(f"Root Agent ('{root_agent.name}') created with {len(root_agent.tools or [])} tools.")
