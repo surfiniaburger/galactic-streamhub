@@ -1,17 +1,3 @@
-.env
-app.log
-.venv
-*/__pycache__
-
-static/charts
-__pycache__*
-*__pycache__
-galatic-streamhub-cloudrun.yaml
-kubernetes-secrets.yaml
-
-
-
-
 # kubernetes-deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
@@ -34,7 +20,7 @@ spec:
       containers:
       - name: galatic-streamhub-1
         # --- IMPORTANT: Update to your new image SHA ---
-        image: us-central1-docker.pkg.dev/silver-455021/cloud-run-source-deploy/galatic-streamhub@sha256:c17354104fe64f488099297bf6689577298349046097233e56f37ec8490fbdba
+        image: us-central1-docker.pkg.dev/<YOUR_GCP_PROJECT_ID>/cloud-run-source-deploy/galatic-streamhub@sha256:c17354104fe64f488099297bf6689577298349046097233e56f37ec8490fbdba
         ports:
         - containerPort: 8080
           name: http1
@@ -47,7 +33,7 @@ spec:
               name: google-api-credentials # From your K8s secret
               key: apiKey
         - name: GOOGLE_CLOUD_PROJECT
-          value: silver-455021 # Matches your Cloud Run config
+          value: <YOUR_GCP_PROJECT_ID> # Matches your Cloud Run config
         - name: GOOGLE_CLOUD_LOCATION
           value: us-central1 # Matches your Cloud Run config
         - name: mongodb-uri
@@ -68,7 +54,7 @@ spec:
               key: mapsApiKey
         # --- NEW: FIREBASE_PROJECT_ID ---
         - name: FIREBASE_PROJECT_ID
-          value: 'studio-l13dd' # From your Cloud Run config
+          value: <YOUR_FIREBASE_PROJECT_ID> # From your Cloud Run config
         resources:
           limits:
             cpu: "1000m"

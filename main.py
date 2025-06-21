@@ -177,8 +177,9 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
     try:
         logging.info("Initializing Firebase Admin SDK...")
         cred = credentials.ApplicationDefault()
+        firebase_project_id = os.environ.get("FIREBASE_PROJECT_ID", "studio-l13dd")
         firebase_admin.initialize_app(cred, {
-            'projectId': 'studio-l13dd',
+            'projectId': firebase_project_id,
         })
 
         logging.info("Firebase Admin SDK initialized successfully for project 'studio-l13dd'.")
@@ -194,24 +195,12 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
         # You might want to prevent the app from starting fully if Firebase is required.
     ### --- END NEW --- ###
 
-    global g_maps_api_key_value # Allow modification of the global variable
-    logging.info("Application Lifespan: Startup initiated - Loading MCP Tools.")
-    app_instance.state.mcp_tools = {}
-    app_instance.state.mcp_tool_exit_stack = None
-    # --- NEW: Fetch Google Maps API Key from Secret Manager ---
-    if SECRET_MANAGER_PROJECT_ID and GOOGLE_MAPS_API_KEY_SECRET_NAME:
-        try:
-            client = secretmanager.SecretManagerServiceClient()
-            secret_version_name = f"projects/{SECRET_MANAGER_PROJECT_ID}/secrets/{GOOGLE_MAPS_API_KEY_SECRET_NAME}/versions/latest"
-            response = client.access_secret_version(request={"name": secret_version_name})
-            g_maps_api_key_value = response.payload.data.decode("UTF-8")
-            logging.info("Successfully fetched Google Maps API Key from Secret Manager.")
-        except Exception as e:
-            logging.error(f"Failed to fetch Google Maps API Key from Secret Manager: {e}. Maps tools may not be available.", exc_info=True)
-            g_maps_api_key_value = None # Ensure it's None if fetching failed
-    else:
-        logging.warning("SECRET_MANAGER_PROJECT_ID or GOOGLE_MAPS_API_KEY_SECRET_NAME not set. Cannot fetch Google Maps API Key.")
-        g_maps_api_key_value = None
+    # --- NEW: Get Google Maps API Key directly from environment variable ---
+    # This environment variable (GOOGLE_MAPS_API_KEY) will be set by Kubernetes.
+    # For local development, you would set it in your .env file or shell.
+    google_maps_api_key_from_env = os.environ.get("GOOGLE_MAPS_API_KEY")
+    # --- End NEW ---
+
 
     # --- Define MCP Server Configs (Moved here to use the fetched API key) ---
     current_server_configs = {
@@ -219,11 +208,11 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
         "ct": ct_server_params,
     }
 
-    if g_maps_api_key_value:
+    if google_maps_api_key_from_env:
         maps_server_params = StdioServerParameters(
             command="npx",
             args=["-y", "@modelcontextprotocol/server-google-maps"],
-            env={"GOOGLE_MAPS_API_KEY": g_maps_api_key_value} # Pass fetched key
+            env={"GOOGLE_MAPS_API_KEY": google_maps_api_key_from_env} # Pass fetched key
         )
         current_server_configs["maps"] = maps_server_params # Add maps server config
         logging.info("Google Maps MCP server configured.")

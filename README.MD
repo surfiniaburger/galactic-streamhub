@@ -301,6 +301,10 @@ To deploy this application to Google Cloud Run:
       --allow-unauthenticated
 ```
 
+```
+kubectl apply -f kubernetes-deployment.yaml -n default 
+```
+
     On successful deployment, you will be provided a URL to the Cloud Run service
 
 ## Project Structure
