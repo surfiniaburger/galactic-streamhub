@@ -206,11 +206,19 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
 
         identified_keywords_json_str = ctx.session.state.get("identified_context_keywords_output", "{}")
         try:
-            identified_keywords_data = json.loads(identified_keywords_json_str)
+            # Clean the string: remove markdown code block fences and strip whitespace
+            cleaned_json_str = identified_keywords_json_str.strip()
+            if cleaned_json_str.startswith("```json"):
+                cleaned_json_str = cleaned_json_str[7:]
+            if cleaned_json_str.endswith("```"):
+                cleaned_json_str = cleaned_json_str[:-3]
+            cleaned_json_str = cleaned_json_str.strip()
+
+            identified_keywords_data = json.loads(cleaned_json_str)
             context_keywords = identified_keywords_data.get("identified_context_keywords", [])
             logging.info(f"[{self.name}] Context keywords from EnvironmentalMonitorAgent: {context_keywords}")
         except json.JSONDecodeError:
-            logging.error(f"[{self.name}] Failed to parse JSON from EnvironmentalMonitorAgent: {identified_keywords_json_str}")
+            logging.error(f"[{self.name}] Failed to parse JSON from EnvironmentalMonitorAgent. Raw string: '{identified_keywords_json_str}'")
             # Fallback: use initial keywords from RootAgent if monitor fails
             context_keywords = ctx.session.state.get("initial_context_keywords", [])
             logging.info(f"[{self.name}] Falling back to initial_context_keywords: {context_keywords}")
@@ -249,7 +257,14 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
 
             precomp_output_str = ctx.session.state.get("proactive_precomputation_output", "{}")
             try:
-                precomp_data_from_agent = json.loads(precomp_output_str)
+                # Clean the string: remove markdown code block fences and strip whitespace
+                cleaned_json_str = precomp_output_str.strip()
+                if cleaned_json_str.startswith("```json"):
+                    cleaned_json_str = cleaned_json_str[7:]
+                if cleaned_json_str.endswith("```"):
+                    cleaned_json_str = cleaned_json_str[:-3]
+                cleaned_json_str = cleaned_json_str.strip()
+                precomp_data_from_agent = json.loads(cleaned_json_str)
                 proactive_suggestion = precomp_data_from_agent.get("proactive_suggestion_text")
                 precomputed_data = precomp_data_from_agent.get("precomputed_data")
                 if proactive_suggestion:
@@ -257,7 +272,7 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
                 else:
                     logging.info(f"[{self.name}] ContextualPrecomputationAgent did not generate a proactive suggestion.")
             except json.JSONDecodeError:
-                logging.error(f"[{self.name}] Failed to parse JSON from ContextualPrecomputationAgent: {precomp_output_str}")
+                logging.error(f"[{self.name}] Failed to parse JSON from ContextualPrecomputationAgent. Raw string: '{precomp_output_str}'")
                 proactive_suggestion = None # Ensure it's reset
                 precomputed_data = None
 
