@@ -1,0 +1,9 @@
+# managed-certificate.yaml
+apiVersion: networking.gke.io/v1
+kind: ManagedCertificate
+metadata:
+  name: galactic-streamhub-certificate
+  namespace: default # Assuming your app is in the 'default' namespace
+spec:
+  domains:
+    - app.galactic-streamhub.com # The subdomain you want to use

@@ -1,0 +1,28 @@
+# ingress.yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: galactic-streamhub-ingress
+  namespace: default
+  annotations:
+    kubernetes.io/ingress.global-static-ip-name: "galactic-streamhub-static-ip" # Static IP you reserved
+    networking.gke.io/managed-certificates: "galactic-streamhub-certificate"   # Your ManagedCertificate
+    # For HTTP to HTTPS redirect, GKE Ingress uses a FrontendConfig
+    # kubernetes.io/ingress.class: "gce" # Usually default
+spec:
+  # defaultBackend: # Optional: if you want a default for requests not matching rules
+  #   service:
+  #     name: some-other-service
+  #     port:
+  #       number: 80
+  rules:
+  - host: app.galactic-streamhub.com # Your chosen subdomain
+    http:
+      paths:
+      - path: /* # Route all paths
+        pathType: ImplementationSpecific # Or Prefix if more appropriate
+        backend:
+          service:
+            name: galatic-streamhub-svc # Your Kubernetes Service name
+            port:
+              name: http1 # Port name from your Service spec.ports
