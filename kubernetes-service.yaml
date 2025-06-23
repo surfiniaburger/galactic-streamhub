@@ -1,17 +1,20 @@
-# kubernetes-service.yaml
+# kubernetes-service.yaml (modified)
 apiVersion: v1
 kind: Service
 metadata:
-  name: galatic-streamhub-svc # Or the name you chose
-  namespace: default         # Must match your Deployment's namespace
+  name: galatic-streamhub-svc
+  namespace: default
   labels:
-    app: galatic-streamhub   # Optional, but good practice
+    app: galatic-streamhub
+  annotations:
+    cloud.google.com/neg: '{"ingress": true}' # Enables Container-Native Load Balancing (good for performance)
+    cloud.google.com/backend-config: '{"default": "galactic-streamhub-bconfig"}' # Links to your BackendConfig
 spec:
-  type: LoadBalancer         # For external access via a cloud load balancer
+  type: NodePort # IMPORTANT: Changed from LoadBalancer
   selector:
-    app: galatic-streamhub   # CRITICAL: Must match the labels on your Pods (defined in Deployment's spec.template.metadata.labels)
+    app: galatic-streamhub # Must match labels on your pods
   ports:
-  - protocol: TCP
-    port: 80                 # The port the Service will listen on (externally, for the LoadBalancer)
-    targetPort: http1        # The named port on your container (from Deployment's container.ports.name)
-                             # OR you can use the port number: targetPort: 8080
+  - name: http1 # Name of the port, used by Ingress
+    protocol: TCP
+    port: 80    # Service listens on this port (for traffic from Ingress)
+    targetPort: 8080 # Your application container's port

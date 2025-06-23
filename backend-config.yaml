@@ -1,0 +1,10 @@
+# backend-config.yaml
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: galactic-streamhub-bconfig
+  namespace: default # Must be in the same namespace as your Service
+spec:
+  timeoutSec: 86400 # 24 hours in seconds. Adjust if needed.
+  # connectionDraining:
+  #   drainingTimeoutSec: 300 # Optional: How long to wait for existing connections to drain on pod termination
