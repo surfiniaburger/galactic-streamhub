@@ -3,14 +3,14 @@
 from google.adk.agents.callback_context import CallbackContext # Only import the general context
 from google.adk.models import LlmRequest, LlmResponse
 from google.genai.types import Content, Part           # For LLM interaction types
-from typing import Optional, List
+from typing import Optional, List, Any
 import logging
-import sys
+import re # For keyword matching
 
 # Assuming mongo_memory_service is initialized in mongo_memory.py and imported here
 # from .mongo_memory import mongo_memory_service, HISTORY_LIMIT, MongoMemory 
 # For simplicity, if mongo_memory.py is in the same directory:
-from mongo_memory import mongo_memory_service # Make sure MongoMemory class is also available if needed
+from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT # Make sure MongoMemory class is also available if needed
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 HISTORY_LIMIT = 5
 
 # --- Callback to SAVE interaction AFTER the agent processes a turn ---
-def save_interaction_after_model_callback(
+async def save_interaction_after_model_callback( # Changed to async def
     callback_context: CallbackContext,
     llm_response: LlmResponse,
 ) -> Optional[LlmResponse]:
@@ -27,7 +27,6 @@ def save_interaction_after_model_callback(
     This runs *after* the model generates a response.
     """
     # Add an unmissable print statement for debugging. This will print to your server's console.
-    print("--- save_interaction_after_model_callback: TRIGGERED ---", file=sys.stderr)
     if not mongo_memory_service or mongo_memory_service.collection is None:
         logger.warning("MongoMemoryService not available in save_interaction_callback. Skipping save.")
         return None
@@ -78,7 +77,7 @@ def save_interaction_after_model_callback(
     return None
 
 # --- Callback to LOAD memory BEFORE the model is called ---
-def load_memory_before_model_callback(
+async def load_memory_before_model_callback( # Changed to async def
     # Type hint uses the general CallbackContext
     callback_context: CallbackContext, 
     llm_request: LlmRequest # ADK provides this specific arg for before_model
@@ -86,8 +85,6 @@ def load_memory_before_model_callback(
     """
     Retrieves recent interactions from MongoDB and prepends them to the LLM request.
     """
-    # Add an unmissable print statement for debugging. This will print to your server's console.
-    print("--- load_memory_before_model_callback: TRIGGERED ---", file=sys.stderr)
     if not mongo_memory_service or mongo_memory_service.collection is None:
         logger.warning("MongoMemoryService not available in load_memory_before_model_callback. Skipping memory load.")
         return None 
@@ -96,10 +93,33 @@ def load_memory_before_model_callback(
         user_id = callback_context._invocation_context.session.user_id
         session_id = callback_context._invocation_context.session.id
         
-        recent_interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=HISTORY_LIMIT)
+        # Get the current user query from llm_request.contents
+        current_user_query_text = ""
+        if llm_request.contents and llm_request.contents[-1].role == "user":
+            # Assuming the last content is the current user's message
+            for part in llm_request.contents[-1].parts:
+                if part.text:
+                    current_user_query_text = part.text
+                    break
 
+        # Heuristic to decide between recent history and hybrid search
+        # Trigger hybrid search if query is long, or contains specific keywords
+        trigger_hybrid_search = False
+        if current_user_query_text:
+            # Keywords that might indicate a need for deeper memory recall
+            memory_keywords = ["remember", "recall", "what did i say", "last time", "previously", "my favorite"]
+            if len(current_user_query_text.split()) > 10 or any(kw in current_user_query_text.lower() for kw in memory_keywords):
+                trigger_hybrid_search = True
+
+        if trigger_hybrid_search:
+            logger.info(f"[Callback: BeforeModel] Triggering vector search for query: '{current_user_query_text[:50]}...'")
+            recent_interactions = await mongo_memory_service.vector_search_interactions(user_id, session_id, current_user_query_text, limit=DEFAULT_HISTORY_LIMIT)
+        else:
+            logger.info(f"[Callback: BeforeModel] Loading recent interactions (limit={DEFAULT_HISTORY_LIMIT}) for user {user_id}, session {session_id}")
+            recent_interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=DEFAULT_HISTORY_LIMIT)
+        
         if recent_interactions:
-            logger.info(f"[Callback: BeforeModel] Loading {len(recent_interactions)} past interactions into prompt for user {user_id}, session {session_id}")
+            logger.info(f"[Callback: BeforeModel] Loaded {len(recent_interactions)} past interactions into prompt.")
             
             history_contents: List[Content] = [] # Changed from history_parts to history_contents for clarity
             for interaction in recent_interactions:
@@ -109,12 +129,13 @@ def load_memory_before_model_callback(
                     history_contents.append(Content(role="model", parts=[Part.from_text(text=interaction["agent_response"])]))
             
             # Prepend the loaded history to the current request's contents.
-            # The ADK framework automatically includes the current user query in llm_request.contents.
             if llm_request.contents:
                 llm_request.contents = history_contents + llm_request.contents
             else:
                 # This case is unlikely if a user just sent a message, but for safety:
                 llm_request.contents = history_contents
+        else:
+            logger.info(f"[Callback: BeforeModel] No relevant past interactions found for user {user_id}, session {session_id}.")
     except Exception as e:
         logger.error(f"Error in load_memory_before_model_callback: {e}", exc_info=True)
 
