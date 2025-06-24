@@ -30,7 +30,7 @@ const firebaseApp = initializeApp(firebaseConfig);
 try {
     const appCheck = initializeAppCheck(firebaseApp, {
       // IMPORTANT: Replace with your actual reCAPTCHA v3 site key
-      provider: new ReCaptchaV3Provider('6LdbRF4rAAAAADbGFZ-pasii6uWvg1Br9c-LjK0A'), 
+      provider: new ReCaptchaV3Provider('6Ld7aWsrAAAAAKlRVXERrU-WniiRyUYsQz9-Ku-1'), 
       
       // Set to true to allow automatic token refresh.
       isTokenAutoRefreshEnabled: true 

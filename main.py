@@ -23,6 +23,7 @@ from google.adk.runners import Runner
 from google.adk.agents import LiveRequestQueue
 from google.adk.agents.run_config import RunConfig
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
+from mongo_memory import MongoMemory
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters
 
 from google.cloud import secretmanager 
@@ -42,7 +43,7 @@ from firebase_admin import credentials, auth
 
 # Import agent configuration
 from agent_config import create_streaming_agent_with_mcp_tools
-
+from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT 
 # --- Configuration & Global Setup ---
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,6 +54,15 @@ STATIC_DIR = Path("static")
 # Initialize ADK services
 
 session_service = InMemorySessionService()
+
+# MongoDB Configuration from Secrets/Env
+MONGODB_SECRET_ID = "MULTIMODAL_MONGODB_URI"
+MONGODB_URI_ENV_VAR = "MONGODB_URI"
+
+DEFAULT_MEMORY_DB_NAME = "adk_agent_memory" # Consider making this configurable if needed
+DEFAULT_MEMORY_COLLECTION_NAME = "interaction_history"
+DEFAULT_HISTORY_LIMIT = 5
+
 
 # --- MCP Server Parameter Definitions & Pydantic Model ---
 class AllServerConfigs(BaseModel):
@@ -88,6 +98,9 @@ server_configs_instance = AllServerConfigs(
 # NEW: Configuration for Google Maps API Key from Secret Manager
 GOOGLE_MAPS_API_KEY_SECRET_NAME = os.environ.get("GOOGLE_MAPS_API_KEY_SECRET_NAME", "google-maps-api-key") # Default secret name
 SECRET_MANAGER_PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "") # Your GCP Project ID
+
+def create_mongo_memory():
+    return MongoMemory(db_name=DEFAULT_MEMORY_DB_NAME, collection_name=DEFAULT_MEMORY_COLLECTION_NAME)
 
 # --- MCP Server Parameter Definitions & Pydantic Model ---
 # ... (AllServerConfigs, weather_server_params, ct_server_params remain the same) ...
@@ -225,6 +238,7 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
 
     app_instance.state.mcp_toolsets = [] # Store MCPToolset instances
     app_instance.state.raw_mcp_tools_for_agent_config = {} # For agent_config.py if it still needs specific tool names
+    app_instance.state.mongo_memory_service = create_mongo_memory()
 
     logging.info("Application Lifespan: Creating MCPToolsets.")
     try:
@@ -313,11 +327,14 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         # For now, let's assume agent_config.py is also refactored.
         #raw_mcp_tools_lookup_for_warnings=raw_mcp_tools_for_config
     )
+    memory_service=app_state.mongo_memory_service
 
     runner = Runner(
         app_name=APP_NAME,
         agent=agent_instance,
-        session_service=session_service,
+        # Pass the persistent memory service
+        session_service=memory_service, 
+       
     )
 
     modality = "AUDIO" if is_audio else "TEXT"

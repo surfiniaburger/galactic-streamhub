@@ -305,6 +305,10 @@ To deploy this application to Google Cloud Run:
 gcloud run services describe galatic-streamhub --format export --region us-central1 --project silver-455021 > galatic-streamhub-cloudrun.yaml
 
 kubectl apply -f kubernetes-deployment.yaml -n default 
+
+kubectl get pods -n default -w
+kubectl rollout status deployment/galatic-streamhub -n default
+
 kubectl logs deployment/galatic-streamhub -n default -f
 ```
 

@@ -8,14 +8,16 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
 #from tools.web_utils import fetch_web_article_text_tool 
 # Import your callback functions and mongo_memory_service instance
-from mongo_memory import mongo_memory_service # If in mongo_memory.py
+from mongo_memory import mongo_memory_service, MongoMemory # If in mongo_memory.py
 from callbacks import save_interaction_after_model_callback, load_memory_before_model_callback # If callbacks are separate
 
+from google.adk.agents.invocation_context import InvocationContext # NEW IMPORT
 # Import new proactive agents and their instructions
 from proactive_agents import (
     ProactiveContextOrchestratorAgent,
     EnvironmentalMonitorAgent, ENVIRONMENTAL_MONITOR_INSTRUCTION,
     ContextualPrecomputationAgent, CONTEXTUAL_PRECOMPUTATION_INSTRUCTION,
+    ReactiveTaskDelegatorAgent, REACTIVE_TASK_DELEGATOR_INSTRUCTION,
     ReactiveTaskDelegatorAgent, REACTIVE_TASK_DELEGATOR_INSTRUCTION,
     VideoReportAgent 
 )
@@ -28,6 +30,7 @@ from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, get_publication_trend
 from pubmed_pipeline import ingest_single_article_data as ingest_pubmed_article
 from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
+from google.adk.tools.tool_context import ToolContext # NEW IMPORT
 from google.adk.agents import SequentialAgent
 from ingest_clinical_trials import query_clinical_trials_from_mongodb, ingest_clinical_trial_record
 from ingest_multimodal_data import find_similar_images
@@ -42,6 +45,12 @@ ROOT_AGENT_INSTRUCTION_STREAMING = """
 Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to understand user requests, analyze their visual surroundings, and assist them. You can use tools directly for simple queries or delegate complex tasks to `ProactiveContextOrchestratorTool`.
 
 **Memory Usage:** I will provide you with relevant recent history from our conversation. Use this history to understand context, follow-ups, and clarifications.
+
+**Deep Memory Recall:** If the user asks about a specific detail they mentioned in a *past conversation* (beyond the immediate recent history), or asks you to "remember" something specific, you MUST use the `search_past_conversations` tool. This tool allows you to search through all past interactions.
+**Crucially, if the user asks about a personal preference or a fact they previously stated (e.g., "what is my favorite smoothie?"), you MUST consult the conversation history (either the automatically provided recent history or by using `search_past_conversations` for older facts) to recall that information.**
+
+**Personalization:** If you identify a user preference or a recurring topic from the conversation history, try to incorporate it into your responses to provide a more personalized experience. For example, if the user mentioned their favorite color, you can refer to it in a relevant context.
+
 
 Core Capabilities:
 1.  **Visual Scene Analysis (Multimodal Perception)**:
@@ -328,6 +337,14 @@ Your final output **MUST** be the `text_report`, followed by the `chart_report`,
 If any report component is missing, empty, or None, simply omit it from the final document but maintain the order of the others.
 Do not add, edit, or summarize anything. Just stack the available report components.
 """
+
+DEEP_MEMORY_RECALL_INSTRUCTION = """
+You are a memory retrieval specialist. Your only job is to call the `search_past_conversations` tool with the user's query.
+The user's query will be provided as your input.
+You MUST pass the user's exact query as the `query_text` argument of the `search_past_conversations` tool.
+Do not add any commentary. Your output is the direct result from the tool.
+"""
+
 
 
 
@@ -632,6 +649,40 @@ def create_streaming_agent_with_mcp_tools(
         bulk_ingestion_processor_agent_tool.func = bulk_ingestion_processor_agent_tool.run_async
     all_root_agent_tools.append(bulk_ingestion_processor_agent_tool) # Add to AVA's tools
 
+
+    # NEW: Wrapper function to correctly handle context for the memory search tool
+    async def search_past_conversations(tool_context: ToolContext, query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Searches through all past conversations to recall specific details or facts previously mentioned by the user.
+        Use this when the user asks you to 'remember' something, or asks about a personal preference they stated earlier,
+        or refers to a past discussion beyond the immediate recent turns.
+        Args:
+            tool_context: The context of the tool call, automatically provided by the ADK.
+            query_text (str): The specific query or detail the user is asking to recall.
+            limit (int): The maximum number of relevant past interactions to retrieve.
+        Returns:
+            A list of dictionaries, each representing a relevant past interaction.
+        """
+        invocation_context = tool_context._invocation_context
+        user_id = invocation_context.session.user_id
+        session_id = invocation_context.session.id
+        return await mongo_memory_service.vector_search_interactions(user_id, session_id, query_text, limit)
+
+    # NEW: Create the Deep Memory Recall agent and wrap it as a tool
+    deep_memory_recall_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="DeepMemoryRecallAgent",
+        instruction=DEEP_MEMORY_RECALL_INSTRUCTION,
+        tools=[search_past_conversations],
+        description="A specialist agent that searches through all past conversations to recall specific details or facts previously mentioned by the user.",
+        **memory_callbacks
+    )
+    deep_memory_recall_tool = AgentTool(agent=deep_memory_recall_agent)
+    if hasattr(deep_memory_recall_tool, 'run_async'):
+       deep_memory_recall_tool.func = deep_memory_recall_tool.run_async
+
+    all_root_agent_tools.append(deep_memory_recall_tool)
+    logging.info(f"DeepMemoryRecallAgent wrapped as AgentTool and added to Root Agent's tools.")
 
 
     # NEW: The Parallel Synthesizer
