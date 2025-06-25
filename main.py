@@ -327,13 +327,12 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         # For now, let's assume agent_config.py is also refactored.
         #raw_mcp_tools_lookup_for_warnings=raw_mcp_tools_for_config
     )
-    memory_service=app_state.mongo_memory_service
 
     runner = Runner(
         app_name=APP_NAME,
         agent=agent_instance,
-        # Pass the persistent memory service
-        session_service=memory_service, 
+        memory_service=app_state.mongo_memory_service, # Pass the persistent memory service
+        session_service=session_service, 
        
     )
 

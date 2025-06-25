@@ -30,6 +30,7 @@ from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, get_publication_trend
 from pubmed_pipeline import ingest_single_article_data as ingest_pubmed_article
 from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
+from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext # NEW IMPORT
 from google.adk.agents import SequentialAgent
 from ingest_clinical_trials import query_clinical_trials_from_mongodb, ingest_clinical_trial_record
