@@ -7,7 +7,7 @@ requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.12",
     "geopy>=2.4.1",
-    "google-adk>=1.1.1",
+    "google-adk>=1.5.0",
     "google-generativeai>=0.8.5",
     "google-cloud>=0.34.0",
     "mcp>=1.6.0",
@@ -21,6 +21,4 @@ dependencies = [
     "firebase-admin>= 6.9.0",
     "google-cloud-texttospeech>=2.27.0",
     "pydicom >= 3.0.1",
-    "newspaper3k>=0.2.8",
-    "nltk>= 3.9.1"
 ]

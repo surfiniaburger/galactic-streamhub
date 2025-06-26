@@ -331,7 +331,7 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
     runner = Runner(
         app_name=APP_NAME,
         agent=agent_instance,
-        memory_service=app_state.mongo_memory_service, # Pass the persistent memory service
+        memory_service=mongo_memory_service, # Pass the persistent memory service
         session_service=session_service, 
        
     )

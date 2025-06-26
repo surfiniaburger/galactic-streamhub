@@ -9,7 +9,11 @@ import json # For Root Agent instruction example
 #from tools.web_utils import fetch_web_article_text_tool 
 # Import your callback functions and mongo_memory_service instance
 from mongo_memory import mongo_memory_service, MongoMemory # If in mongo_memory.py
-from callbacks import save_interaction_after_model_callback, load_memory_before_model_callback # If callbacks are separate
+from callbacks import (
+    check_for_prompt_injection_callback,  # Import the new callback
+    load_memory_before_model_callback,
+    save_interaction_after_model_callback,
+)
 
 from google.adk.agents.invocation_context import InvocationContext # NEW IMPORT
 # Import new proactive agents and their instructions
@@ -47,8 +51,8 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 
 **Memory Usage:** I will provide you with relevant recent history from our conversation. Use this history to understand context, follow-ups, and clarifications.
 
-**Deep Memory Recall:** If the user asks about a specific detail they mentioned in a *past conversation* (beyond the immediate recent history), or asks you to "remember" something specific, you MUST use the `search_past_conversations` tool. This tool allows you to search through all past interactions.
-**Crucially, if the user asks about a personal preference or a fact they previously stated (e.g., "what is my favorite smoothie?"), you MUST consult the conversation history (either the automatically provided recent history or by using `search_past_conversations` for older facts) to recall that information.**
+**Deep Memory Recall:** If the user asks about a specific detail they mentioned in a *past conversation* (beyond the immediate recent history), or asks you to "remember" something specific, you MUST use the `DeepMemoryRecallAgent` tool. This tool specializes in searching through all past interactions. You should pass the user's question as the 'request' to this tool.
+**Crucially, if the user asks about a personal preference or a fact they previously stated (e.g., "what is my favorite smoothie?"), you MUST use the `DeepMemoryRecallAgent` tool to search for older facts.**
 
 **Personalization:** If you identify a user preference or a recurring topic from the conversation history, try to incorporate it into your responses to provide a more personalized experience. For example, if the user mentioned their favorite color, you can refer to it in a relevant context.
 
@@ -357,9 +361,12 @@ def create_streaming_agent_with_mcp_tools(
     # --- Define a shared callback configuration for memory ---
     # These callbacks will be applied to all agents that should participate
     # in the conversation history.
-    memory_callbacks = {
-        "before_model_callback": load_memory_before_model_callback,
-        "after_model_callback": save_interaction_after_model_callback,
+    shared_callbacks = {
+        "before_model_callback": [
+             check_for_prompt_injection_callback,  # Security check runs first!
+             load_memory_before_model_callback,
+        ],
+       "after_model_callback": save_interaction_after_model_callback,
     }
     all_root_agent_tools: List[Any] = []
 
@@ -400,7 +407,7 @@ def create_streaming_agent_with_mcp_tools(
         description="Analyzes visual context to identify keywords for proactive assistance.",
         # This key is crucial for the orchestrator to retrieve the agent's output.
         output_key="identified_context_keywords_output",
-        **memory_callbacks # Add memory callbacks
+        **shared_callbacks # Add memory callbacks
     )
 
     contextual_precomputation_agent = LlmAgent(
@@ -413,7 +420,7 @@ def create_streaming_agent_with_mcp_tools(
                                    # For ADK, better to have tools on Root and sub-agents declare.
         # This key is crucial for the orchestrator to retrieve the agent's output.
         output_key="proactive_precomputation_output",
-        **memory_callbacks # Add memory callbacks
+        **shared_callbacks  # Add memory callbacks
     )
 
     reactive_task_delegator_agent = LlmAgent(
@@ -422,7 +429,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=REACTIVE_TASK_DELEGATOR_INSTRUCTION, # Renamed from TASK_EXECUTION_AGENT_INSTRUCTION
         description="Handles explicit user tasks or executes precomputed suggestions.",
         tools=sub_agent_tools, # Same as above
-        **memory_callbacks # Add memory callbacks
+        **shared_callbacks  # Add memory callbacks
     )
 
     # 2.5 Define Specialist Agents for Parallel Research
@@ -432,7 +439,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction="You are a specialized agent. Your task is to search a local PubMed database. \n1. Retrieve the user's query from the session state key 'current_research_query'.\n2. Call the 'query_pubmed_articles' tool using this query.\n3. The list of articles returned by the tool is your primary result. Output this list directly.",
         tools=[query_pubmed_articles],
         output_key="local_db_results", # Store the direct output of this agent here
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     web_pubmed_search_agent = LlmAgent(
@@ -441,7 +448,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction="You are a specialized agent. Your task is to search the web for recent biomedical information.\n1. Retrieve the user's query from the session state key 'current_research_query'.\n2. Append 'latest research' or 'recent studies' to this query.\n3. Call the 'google_search_agent' tool with this modified query.\n4. The string summary returned by the tool is your primary result. Output this string directly.",
         tools=[google_search_agent_tool],
         output_key="web_search_results", # Store the direct output of this agent here
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     clinical_trials_search_agent = LlmAgent(
@@ -457,7 +464,7 @@ def create_streaming_agent_with_mcp_tools(
         ),
         tools=[query_clinical_trials_from_mongodb], # Pass the function directly
         output_key="clinical_trials_results", # Store the direct output of this agent here
-        **memory_callbacks
+        **shared_callbacks 
     )
     logging.info(f"ClinicalTrialsSearchAgent instance created: {clinical_trials_search_agent.name}")
 
@@ -476,7 +483,7 @@ def create_streaming_agent_with_mcp_tools(
         ),
         tools=[query_drug_adverse_events],
         output_key="openfda_adverse_event_results",
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     logging.info(f"OpenFDASearchAgent instance created: {openfda_search_agent.name}")
@@ -500,7 +507,7 @@ def create_streaming_agent_with_mcp_tools(
         name="KeyInsightExtractorAgent",
         instruction=KEY_INSIGHT_EXTRACTOR_INSTRUCTION,
         output_key="key_entities", # Its output is a list of entities
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     # Agent 3: Correlational Investigator
@@ -510,7 +517,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=TRIAL_CONNECTOR_INSTRUCTION,
         tools=[query_clinical_trials_from_mongodb],
         output_key="connected_trials_results", # Its output is the list of connected trials
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     # Create the initial data-gathering sequence
@@ -560,7 +567,7 @@ def create_streaming_agent_with_mcp_tools(
        instruction=VISUALIZATION_AGENT_INSTRUCTION,
        tools=[generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart, generate_grouped_bar_chart], # UPDATED TOOLS
        output_key="visualization_output", # Or handle output directly
-       **memory_callbacks
+       **shared_callbacks 
     )
     logging.info(f"VisualizationAgent instance created: {visualization_agent.name}")
 
@@ -575,7 +582,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction="Call the get_publication_trend tool.",
         tools=[get_publication_trend],
         output_key="trend_chart_json",
-        **memory_callbacks)
+        **shared_callbacks )
     
     # NEW: The Multimodal Evidence Agent
     multimodal_evidence_agent = LlmAgent(model=GEMINI_PRO_MODEL_ID, name="MultimodalEvidenceAgent", instruction=MULTIMODAL_EVIDENCE_INSTRUCTION, tools=[find_similar_images], output_key="image_evidence_results")
@@ -597,7 +604,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=INGESTION_ROUTER_INSTRUCTION,
         tools=[ingest_pubmed_article, ingest_clinical_trial_record],
         description="A smart data librarian that analyzes text and routes it to the correct database (PubMed or Clinical Trials).",
-        **memory_callbacks
+        **shared_callbacks 
     )
     ingestion_router_agent_tool = AgentTool(agent=ingestion_router_agent)
     if hasattr(ingestion_router_agent_tool, 'run_async'):
@@ -612,7 +619,7 @@ def create_streaming_agent_with_mcp_tools(
         name="TextSynthesizerAgent",
         instruction=TEXT_SYNTHESIZER_INSTRUCTION,
         output_key="text_report",
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     # Agent B: The Chart Producer (NEW)
@@ -622,7 +629,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=CHART_PRODUCER_INSTRUCTION,
         tools=[visualization_agent_tool], # Its only tool is the viz agent
         output_key="chart_report",
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     # Agent C: The Image Detective (NEW)
@@ -632,7 +639,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=IMAGE_EVIDENCE_PRODUCER_INSTRUCTION,
         tools=[multimodal_evidence_tool], # Its only tool is the multimodal agent
         output_key="image_report",
-        **memory_callbacks
+        **shared_callbacks 
     )
 
 
@@ -643,7 +650,7 @@ def create_streaming_agent_with_mcp_tools(
         tools=[ingestion_router_agent_tool], # Uses the IngestionRouterAgent
         description="Processes a list of candidate items for ingestion after user confirmation, using the IngestionRouterAgent.",
         # Its direct output will be the summary message for AVA to relay.
-        **memory_callbacks
+        **shared_callbacks 
     )
     bulk_ingestion_processor_agent_tool = AgentTool(agent=bulk_ingestion_processor_agent)
     if hasattr(bulk_ingestion_processor_agent_tool, 'run_async'):
@@ -676,7 +683,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=DEEP_MEMORY_RECALL_INSTRUCTION,
         tools=[search_past_conversations],
         description="A specialist agent that searches through all past conversations to recall specific details or facts previously mentioned by the user.",
-        **memory_callbacks
+        **shared_callbacks 
     )
     deep_memory_recall_tool = AgentTool(agent=deep_memory_recall_agent)
     if hasattr(deep_memory_recall_tool, 'run_async'):
@@ -694,8 +701,6 @@ def create_streaming_agent_with_mcp_tools(
             text_synthesizer_agent,
             chart_producer_agent,
             image_evidence_producer_agent
-            
-
         ]
         # The outputs "text_report" and "visual_report" will be available in session state
     )
@@ -705,7 +710,7 @@ def create_streaming_agent_with_mcp_tools(
         name="FinalReportAggregatorAgent",
         model=GEMINI_PRO_MODEL_ID,
         instruction=FINAL_AGGREGATOR_INSTRUCTION,
-        **memory_callbacks
+        **shared_callbacks 
         # No tools needed, it just processes text from session state
     )
     
@@ -808,7 +813,7 @@ def create_streaming_agent_with_mcp_tools(
         tools=all_root_agent_tools,
         # Add memory callbacks to the root agent as well, in case it needs to
         # make its own LLM calls.
-        **memory_callbacks
+        **shared_callbacks 
     )
 
     logging.info(f"Root Agent ('{root_agent.name}') created with {len(root_agent.tools or [])} tools.")
