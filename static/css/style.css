@@ -222,11 +222,22 @@ body.dark-theme {
   -webkit-backdrop-filter: blur(15px) saturate(180%);
 }
 
+
 .message {
   padding: 12px 18px; margin-bottom: 12px; border-radius: 12px; line-height: 1.5; max-width: 85%; position: relative; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); transform: translateY(20px); opacity: 0; animation: messageSlideIn 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); 
+  transform: translateY(20px);
+  opacity: 0;
+  animation: messageSlideIn 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
 }
-@keyframes messageSlideIn { to { transform: translateY(0); opacity: 1; } }
+@keyframes messageSlideIn {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+
 .message.system {
   background: linear-gradient(135deg, rgba(0, 242, 255, 0.15) 0%, rgba(0, 242, 255, 0.05) 100%); color: var(--accent-color); font-style: italic; text-align: center; font-size: 0.95em;
   max-width: 100%; border: 1px solid rgba(0, 242, 255, 0.3); text-shadow: 0 0 10px rgba(0, 242, 255, 0.5); position: relative; overflow: hidden;
@@ -241,9 +252,9 @@ body.dark-theme {
 }
 .message.user::after {
   content: ''; position: absolute; top: 0; right: -1px; width: 3px; height: 100%; background: linear-gradient(to bottom, var(--accent-color), transparent, var(--accent-color));
-  border-radius: 0 12px 12px 0; animation: userMessagePulse 2s ease-in-out infinite alternate;
+  border-radius: 0 12px 12px 0;
 }
-@keyframes userMessagePulse { 0% { box-shadow: 0 0 5px var(--accent-color); } 100% { box-shadow: 0 0 15px var(--accent-color), 0 0 25px rgba(0, 242, 255, 0.5); } }
+/*@keyframes userMessagePulse { 0% { box-shadow: 0 0 5px var(--accent-color); } 100% { box-shadow: 0 0 15px var(--accent-color), 0 0 25px rgba(0, 242, 255, 0.5); } } */
 .message.remote {
   background: linear-gradient(135deg, rgba(80, 90, 140, 0.4) 0%, rgba(50, 60, 110, 0.2) 100%); margin-right: auto; border: 1px solid rgba(100, 120, 180, 0.4);
   box-shadow: 0 4px 20px rgba(80, 90, 140, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1); position: relative;
@@ -305,20 +316,20 @@ body.dark-theme {
 .input-controls { position: absolute; right: 15px; top: 50%; transform: translateY(-50%); display: flex; align-items: center; gap: 8px; }
 .icon-button {
   background: linear-gradient(135deg, rgba(0, 242, 255, 0.1) 0%, rgba(0, 150, 180, 0.05) 100%); border: 1px solid rgba(0, 242, 255, 0.2); color: var(--text-muted);
-  font-size: 1.2rem; cursor: pointer; padding: 10px; border-radius: 50%; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); position: relative; overflow: hidden;
+  font-size: 1.2rem; cursor: pointer; padding: 10px; border-radius: 50%; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); position: relative; overflow: hidden;
 }
 .icon-button::before {
-  content: ''; position: absolute; top: 50%; left: 50%; width: 0; height: 0; background: radial-gradient(circle, var(--accent-color) 0%, transparent 70%); transition: all 0.3s ease; transform: translate(-50%, -50%); border-radius: 50%;
+  content: ''; position: absolute; top: 50%; left: 50%; width: 0; height: 0; background: radial-gradient(circle, var(--accent-color) 0%, transparent 70%); border-radius: 50%;
 }
 .icon-button:hover {
-  color: var(--accent-color); background: linear-gradient(135deg, rgba(0, 242, 255, 0.2) 0%, rgba(0, 150, 180, 0.1) 100%); border-color: var(--accent-color); transform: scale(1.1); box-shadow: 0 0 20px rgba(0, 242, 255, 0.4);
+  color: var(--accent-color); background: linear-gradient(135deg, rgba(0, 242, 255, 0.2) 0%, rgba(0, 150, 180, 0.1) 100%); border-color: var(--accent-color);  box-shadow: 0 0 20px rgba(0, 242, 255, 0.4);
 }
 .icon-button:hover::before { width: 100%; height: 100%; opacity: 0.1; }
 .icon-button.active {
   color: var(--accent-color); background: linear-gradient(135deg, rgba(0, 242, 255, 0.3) 0%, rgba(0, 150, 180, 0.2) 100%); border-color: var(--accent-color);
-  text-shadow: 0 0 15px var(--glow-color); box-shadow: 0 0 25px rgba(0, 242, 255, 0.5), inset 0 0 20px rgba(0, 242, 255, 0.1); animation: iconActivePulse 2s ease-in-out infinite alternate;
+  text-shadow: 0 0 15px var(--glow-color); box-shadow: 0 0 25px rgba(0, 242, 255, 0.5), inset 0 0 20px rgba(0, 242, 255, 0.1); 
 }
-@keyframes iconActivePulse { 0% { box-shadow: 0 0 20px rgba(0, 242, 255, 0.4), inset 0 0 15px rgba(0, 242, 255, 0.1); } 100% { box-shadow: 0 0 35px rgba(0, 242, 255, 0.7), inset 0 0 25px rgba(0, 242, 255, 0.2); } }
+
 #agent-thinking-indicator {
   display: flex; align-items: center; justify-content: center; gap: 20px; padding: 20px; background: radial-gradient(ellipse at center, rgba(0, 242, 255, 0.1) 0%, transparent 70%);
   border-radius: 15px; margin: 10px 0; position: relative; overflow: hidden;
@@ -1325,4 +1336,18 @@ body.user-guide-page .app-main { display: block; max-width: 900px; }
 @keyframes shimmer {
   0% { background-position: -200% 0; }
   100% { background-position: 200% 0; }
+}
+
+
+.user-border-pulse {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: -1px; /* Position on the right edge of the parent .message.user */
+  width: 3px;
+  height: 100%;
+  background: linear-gradient(to bottom, var(--accent-color), transparent, var(--accent-color));
+  border-radius: 0 12px 12px 0;
+  /* GSAP will animate the box-shadow, but we can give it a starting value */
+  box-shadow: 0 0 5px var(--accent-color);
 }

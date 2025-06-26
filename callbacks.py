@@ -1,11 +1,12 @@
 # In your callbacks.py
 # CORRECTED IMPORT
-from google.adk.agents.callback_context import CallbackContext # Only import the general context
+from google.adk.agents.callback_context import CallbackContext
 from google.adk.models import LlmRequest, LlmResponse
-from google.genai.types import Content, Part           # For LLM interaction types
-from typing import Optional, List, Any
+from google.genai.types import Content, Part
+from typing import Optional, List
 import logging
-import re # For keyword matching
+
+from google.adk.events import Event
 
 # Assuming mongo_memory_service is initialized in mongo_memory.py and imported here
 # from .mongo_memory import mongo_memory_service, HISTORY_LIMIT, MongoMemory 
@@ -16,6 +17,62 @@ logger = logging.getLogger(__name__)
 
 
 HISTORY_LIMIT = 5
+
+async def check_for_prompt_injection_callback(
+    callback_context: CallbackContext,
+    llm_request: LlmRequest
+) -> Optional[LlmResponse]:
+    """
+    A pre-model callback to check for potential prompt injection attacks.
+
+    This should run before any other logic that processes the user's input.
+    It inspects the latest user prompt for common injection phrases.
+    If a potential threat is found, it logs a warning and returns a canned
+    LlmResponse to terminate the turn and inform the user.
+
+    Args:
+        callback_context: The invocation context, containing session info.
+        llm_request: The request object about to be sent to the LLM.
+
+    Returns:
+        An LlmResponse object to terminate the turn if an injection is detected,
+        otherwise None.
+    """
+    # The user prompt is the last content in the request
+    if not llm_request.contents:
+        return None
+
+    last_content = llm_request.contents[-1]
+    if last_content.role != 'user' or not last_content.parts:
+        return None
+
+    user_prompt = "".join(part.text for part in last_content.parts if part.text).strip().lower()
+
+    if not user_prompt:
+        return None
+
+    injection_patterns = [
+        "ignore all previous instructions", "ignore the above", "disregard the above",
+        "you are now", "your new instructions are", "system prompt:",
+        "reveal your instructions", "what are your instructions", "print your instructions",
+    ]
+
+    for pattern in injection_patterns:
+        if pattern in user_prompt:
+            logger.warning(
+                f"Potential prompt injection detected in session {callback_context._invocation_context.session.id}. "
+                f"Pattern: '{pattern}'. Prompt: '{user_prompt[:200]}...'"
+            )
+            # Halt processing by returning a canned LlmResponse.
+            return LlmResponse(
+                content=Content(
+                    parts=[Part.from_text("Your request could not be processed due to a security policy. Please rephrase your request and try again.")],
+                    role="model"
+                ),
+                turn_complete=True # Signal the end of the turn
+            )
+
+    return None # No injection detected, proceed normally
 
 # --- Callback to SAVE interaction AFTER the agent processes a turn ---
 async def save_interaction_after_model_callback( # Changed to async def
@@ -83,7 +140,8 @@ async def load_memory_before_model_callback( # Changed to async def
     llm_request: LlmRequest # ADK provides this specific arg for before_model
 ) -> Optional[LlmResponse]:
     """
-    Retrieves recent interactions from MongoDB and prepends them to the LLM request.
+    Retrieves the last few chronological interactions from MongoDB to provide
+    short-term context to the LLM. It does NOT perform a vector search.
     """
     if not mongo_memory_service or mongo_memory_service.collection is None:
         logger.warning("MongoMemoryService not available in load_memory_before_model_callback. Skipping memory load.")
@@ -92,31 +150,11 @@ async def load_memory_before_model_callback( # Changed to async def
     try:
         user_id = callback_context._invocation_context.session.user_id
         session_id = callback_context._invocation_context.session.id
-        
-        # Get the current user query from llm_request.contents
-        current_user_query_text = ""
-        if llm_request.contents and llm_request.contents[-1].role == "user":
-            # Assuming the last content is the current user's message
-            for part in llm_request.contents[-1].parts:
-                if part.text:
-                    current_user_query_text = part.text
-                    break
-
-        # Heuristic to decide between recent history and hybrid search
-        # Trigger hybrid search if query is long, or contains specific keywords
-        trigger_hybrid_search = False
-        if current_user_query_text:
-            # Keywords that might indicate a need for deeper memory recall
-            memory_keywords = ["remember", "recall", "what did i say", "last time", "previously", "my favorite"]
-            if len(current_user_query_text.split()) > 10 or any(kw in current_user_query_text.lower() for kw in memory_keywords):
-                trigger_hybrid_search = True
-
-        if trigger_hybrid_search:
-            logger.info(f"[Callback: BeforeModel] Triggering vector search for query: '{current_user_query_text[:50]}...'")
-            recent_interactions = await mongo_memory_service.vector_search_interactions(user_id, session_id, current_user_query_text, limit=DEFAULT_HISTORY_LIMIT)
-        else:
-            logger.info(f"[Callback: BeforeModel] Loading recent interactions (limit={DEFAULT_HISTORY_LIMIT}) for user {user_id}, session {session_id}")
-            recent_interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=DEFAULT_HISTORY_LIMIT)
+        # --- SIMPLIFIED LOGIC ---
+        # Always fetch the last few chronological turns for immediate context.
+        # The DeepMemoryRecallAgent is responsible for vector search on explicit user requests.
+        logger.info(f"[Callback: BeforeModel] Loading recent chronological interactions (limit={DEFAULT_HISTORY_LIMIT}) for user {user_id}, session {session_id}")
+        recent_interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=DEFAULT_HISTORY_LIMIT)
         
         if recent_interactions:
             logger.info(f"[Callback: BeforeModel] Loaded {len(recent_interactions)} past interactions into prompt.")

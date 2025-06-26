@@ -170,6 +170,31 @@ function showAgentThinking(isThinking) {
             <span>AVA is processing your request...</span>
         `;
         messagesDiv.appendChild(loadingElem);
+
+        // --- GSAP REFACTOR ---
+        const dots = loadingElem.querySelectorAll(".loader-dots div");
+        const text = loadingElem.querySelector("span");
+
+        // Create a timeline for the animation
+        const tl = gsap.timeline({ repeat: -1, yoyo: true }); // repeat: -1 means it will loop forever
+
+        // Stagger the animation of the dots
+        tl.to(dots, {
+            y: -10,
+            stagger: 0.2, // Animate each dot 0.2s after the previous one
+            ease: "power1.inOut"
+        });
+
+        // You can also animate the text within the same timeline
+        gsap.to(text, {
+            duration: 1.5,
+            opacity: 0.7,
+            repeat: -1,
+            yoyo: true,
+            ease: "power1.inOut"
+        });
+        // --- END REFACTOR ---
+
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     } else {
         // Remove loading indicator
@@ -253,6 +278,27 @@ function handleTextMessage(textData) {
         messageElem.id = currentMessageId;
         messageElem.classList.add("message", "remote");
         messagesDiv.appendChild(messageElem);
+
+        // --- GSAP Animation for Remote Message ---
+        gsap.from(messageElem, {
+            duration: 0.7,
+            x: -20, // Slide in from the left
+            opacity: 0,
+            ease: "elastic.out(1, 0.75)" // A fun, bouncy ease
+        });
+
+        // Add the flowing side-border animation
+        const remoteBorder = document.createElement('div');
+        remoteBorder.className = 'remote-border-flow'; // Add a class for styling
+        messageElem.appendChild(remoteBorder);
+        gsap.to(remoteBorder, {
+            duration: 3,
+            backgroundPosition: "0% 100%",
+            ease: "power1.inOut",
+            repeat: -1,
+            yoyo: true
+        });
+        // --- End GSAP ---        
     }
 
     // Accumulate the full text content
@@ -520,21 +566,67 @@ function appendLog(text, type = "system") {
 }
 
 function addSubmitHandler() {
+    // Prevent adding the listener more than once
     if (messageForm.onsubmit) return;
+
     messageForm.onsubmit = function (e) {
         e.preventDefault();
         try {
             const messageText = messageInput.value.trim();
+
             if (messageText) {
+                // Log the interaction for analytics
                 logInteraction('text_message');
+
+                // Use existing function to create and append the basic message div
                 appendLog(messageText, "user");
-                sendMessage({ mime_type: "text/plain", data: messageText });
-                showAgentThinking(true); // Show indicator when a message is sent
+
+                // --- GSAP Animation Refactor ---
+
+                // Get the message element that was just added to the DOM
+                const userMessageElem = messagesDiv.lastElementChild;
+
+                // Animate the entire message bubble sliding in from the right
+                // GSAP's .from() animates from the specified values to the element's current state
+                gsap.from(userMessageElem, {
+                    duration: 0.6,
+                    x: 30, // Start 30px to the right
+                    opacity: 0,
+                    ease: "power2.out" // A smooth easing function
+                });
+
+                // Create and animate the pulsing side-border for a futuristic look
+                const userBorder = document.createElement('div');
+                userBorder.className = 'user-border-pulse'; // Assign class for styling
+                userMessageElem.appendChild(userBorder);
+
+                // Animate the border's box-shadow to create a "pulse" effect
+                // GSAP's .to() animates to the specified values
+                gsap.to(userBorder, {
+                    duration: 2, // Animation duration
+                    boxShadow: "0 0 15px var(--accent-color), 0 0 25px rgba(0, 242, 255, 0.5)",
+                    ease: "sine.inOut", // A gentle, smooth ease
+                    repeat: -1, // Loop indefinitely
+                    yoyo: true // Animate back and forth
+                });
+                // --- End GSAP Refactor ---
+
+
+                // Send the message via WebSocket
+                sendMessage({
+                    mime_type: "text/plain",
+                    data: messageText
+                });
+
+                // Show the "agent is thinking" indicator
+                showAgentThinking(true);
+
                 console.log("[CLIENT TO AGENT] Text: " + messageText);
             }
         } catch (error) {
             console.error("Error in messageForm.onsubmit:", error);
         }
+        // Prevent default form submission behavior
         return false;
     };
 }
@@ -557,6 +649,67 @@ function base64ToArray(base64) {
     return bytes.buffer;
 }
 
+
+// Get all icon buttons
+const iconButtons = document.querySelectorAll('.icon-button');
+
+// Create a reusable hover animation
+iconButtons.forEach(button => {
+    // Animate the button on mouse enter
+    button.addEventListener('mouseenter', () => {
+        gsap.to(button, {
+            duration: 0.3,
+            scale: 1.1,
+            boxShadow: "0 0 20px rgba(0, 242, 255, 0.4)",
+            borderColor: "var(--accent-color)",
+            color: "var(--accent-color)",
+            ease: "power2.out"
+        });
+    });
+
+    // Animate back to the original state on mouse leave
+    button.addEventListener('mouseleave', () => {
+        gsap.to(button, {
+            duration: 0.3,
+            scale: 1,
+            boxShadow: "none",
+            borderColor: "rgba(0, 242, 255, 0.2)",
+            color: "var(--text-muted)",
+            ease: "power2.out"
+        });
+    });
+});
+
+
+// We also need a function to control the "active" pulse animation
+function setButtonActiveState(button, isActive) {
+    // First, kill any existing animations on the button to prevent conflicts
+    gsap.killTweensOf(button);
+
+    if (isActive) {
+        // Store the animation as a property of the button element
+        // This makes it easy to access and kill later
+        button.pulseAnimation = gsap.to(button, {
+            duration: 2,
+            boxShadow: "0 0 35px rgba(0, 242, 255, 0.7), inset 0 0 25px rgba(0, 242, 255, 0.2)",
+            ease: "power1.inOut",
+            repeat: -1,
+            yoyo: true
+        });
+    } else {
+        // If the pulse animation exists, kill it
+        if (button.pulseAnimation) {
+            button.pulseAnimation.kill();
+        }
+        // Animate the button back to a non-active state gracefully
+        gsap.to(button, {
+            duration: 0.5,
+            boxShadow: "none", // Reset shadow
+            // Add any other properties for the non-active state
+        });
+    }
+}
+
 // Audio handling
 let audioPlayerNode;
 let audioRecorderNode;
@@ -571,6 +724,7 @@ async function toggleAudio() {
     startAudioButton.disabled = true;
     if (!is_audio_mode_active) {
         audioLoader.classList.remove('hidden');
+        setButtonActiveState(startAudioButton, true); 
         try {
             if (!audioPlayerNode) {
                 [audioPlayerNode] = await startAudioPlayerWorklet();
@@ -608,6 +762,7 @@ async function toggleAudio() {
         }
         is_audio_mode_active = false;
         isProcessingAudioResponse = false;
+        setButtonActiveState(startAudioButton, false);
         startAudioButton.classList.remove('active');
         appendLog("Voice chat deactivated.", "system");
         startAudioButton.disabled = false;

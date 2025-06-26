@@ -41,7 +41,7 @@ def setup_logging():
     """Sets up Google Cloud Logging."""
     # Renaming logger to avoid conflicts if imported elsewhere
     logger = logging.getLogger('clinical_trials_pipeline')
-    if logger.hasHandlers():
+    if logger.handlers:
         return logger, logger.handlers[0], None # Assume already configured
 
     gcp_logging_client = google.cloud.logging.Client(project=GCP_PROJECT_ID)
