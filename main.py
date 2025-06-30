@@ -375,7 +375,7 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         run_config=run_config,
     )
     logging.info(f"ADK Runner.run_live initiated for session {session_id}.")
-    return live_events, live_request_queue
+    return live_events, live_request_queue, session
 
 # --- WebSocket Communication Logic (adapted from your streaming example) ---
 async def agent_to_client_messaging(websocket: WebSocket, live_events, session_id: str):
@@ -423,7 +423,7 @@ async def agent_to_client_messaging(websocket: WebSocket, live_events, session_i
         logging.info(f"Agent to client messaging task ended for session {session_id}.")
 
 
-async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: LiveRequestQueue, session_id: str):
+async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: LiveRequestQueue, session_id: str, session: Any):
     """Client to agent communication for streaming"""
     logging.info(f"Client to agent messaging task started for session {session_id}.")
     try:
@@ -446,6 +446,10 @@ async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: Li
                 try:
                     # Assuming 'data' is a Base64 encoded string for the image
                     decoded_image_data = base64.b64decode(data)
+                    # Use the session object that was passed in
+                    if session.state is not None:
+                        session.state['latest_image_bytes'] = decoded_image_data
+                        logging.debug(f"[S:{session_id}] Saved latest image frame to session state.")
                     # The Gemini API expects image data directly as bytes for supported formats.
                     # We send it as a Blob via send_realtime.
                     # The ADK/Live API should package this correctly for the model.
@@ -528,18 +532,18 @@ async def websocket_endpoint(
         return
     # --- END UPDATED CHECK ---
 
-    live_events, live_request_queue = None, None # Initialize to None
+    live_events, live_request_queue, session = None, None, None # Initialize to None
     agent_to_client_task, client_to_agent_task = None, None # Initialize to None
 
     try:
         # **CRITICAL CHANGE: Use the verified 'uid' as the session ID.**
-        live_events, live_request_queue =await start_agent_session(uid, app_state, actual_is_audio)
+        live_events, live_request_queue, session =await start_agent_session(uid, app_state, actual_is_audio)
 
         agent_to_client_task = asyncio.create_task(
             agent_to_client_messaging(websocket, live_events, uid)
         )
         client_to_agent_task = asyncio.create_task(
-            client_to_agent_messaging(websocket, live_request_queue, uid)
+            client_to_agent_messaging(websocket, live_request_queue, uid, session)
         )
 
         # Wait for either task to complete (e.g., disconnection or error)

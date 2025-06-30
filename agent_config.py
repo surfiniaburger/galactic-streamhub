@@ -14,6 +14,7 @@ from callbacks import (
     load_memory_before_model_callback,
     save_interaction_after_model_callback,
 )
+from google.cloud import vision
 
 from google.adk.agents.invocation_context import InvocationContext # NEW IMPORT
 # Import new proactive agents and their instructions
@@ -89,8 +90,14 @@ Core Capabilities:
         1. You MUST call the `BulkIngestionProcessorAgent` tool. Pass an empty request or a simple instruction like 'Process pending ingestion items' as the request argument to the tool (e.g., `BulkIngestionProcessorAgent(request='Process pending ingestion items')`).
         2. The output from `BulkIngestionProcessorAgent` will be your response to the user.
     *   If the user declines or asks something else, proceed with your normal conversational flow
+
+7.  ** Delegation for Accessibility**:
+    *   **IF** the user's request is clearly for accessibility assistance (e.g., "describe what you see", "what's in front of me?", "can you read this for me?", "what does this label say?"), you **MUST** delegate the task to the `AccessibilityOrchestratorAgent` tool.
+    *   **Crucially**, before calling the tool, ensure you have populated `ctx.session.state['input_seen_items']` based on your visual analysis.
+    *   The direct output from the `AccessibilityOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
+
     
-7.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+8.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
@@ -350,6 +357,91 @@ You MUST pass the user's exact query as the `query_text` argument of the `search
 Do not add any commentary. Your output is the direct result from the tool.
 """
 
+
+async def perform_ocr_on_last_frame(tool_context: ToolContext, area_of_interest: str = "the entire view") -> str:
+    """
+    Performs Optical Character Recognition (OCR) on the user's current view using Google Cloud Vision API.
+    Args:
+        tool_context: The context of the tool call. This will contain the image bytes.
+        area_of_interest (str): A hint from the LLM about where to look. (Note: Vision API scans the whole image by default).
+    Returns:
+        The text found in the image, or a message indicating no text was found.
+    """
+    logging.info(f"Performing real OCR using Google Cloud Vision API. Area of interest hint: {area_of_interest}")
+
+    # 1. Get image bytes from the invocation context
+    # The ADK places the latest multimodal input in the context.
+    image_bytes = tool_context._invocation_context.session.state.get('latest_image_bytes')
+
+    if not image_bytes:
+        logging.warning("OCR tool was called, but no image was found in the context.")
+        return "I am sorry, I could not see an image to read from."
+
+    # 2. Call the Vision API
+    try:
+        client = vision.ImageAnnotatorClient()
+        image = vision.Image(content=image_bytes)
+
+        # Perform text detection
+        response = client.text_detection(image=image)
+        texts = response.text_annotations
+
+        if response.error.message:
+            raise Exception(f'Vision API Error: {response.error.message}')
+
+        if texts:
+            # The first annotation is the full block of text detected.
+            full_text = texts[0].description
+            logging.info(f"OCR Success. Detected text: {full_text.strip()}")
+            return f"The text reads: '{full_text.strip()}'"
+        else:
+            logging.info("OCR completed, but no text was found on the image.")
+            return "No text could be found in the image."
+
+    except Exception as e:
+        logging.error(f"An error occurred during the Google Cloud Vision API call: {e}")
+        return "I encountered an error while trying to read the text."
+
+
+# --- Instructions for Accessibility Sub-Agents ---
+
+SCENE_DESCRIBER_INSTRUCTION = """
+You are an expert at describing scenes for visually impaired users.
+You will receive a list of items identified in the user's environment in `ctx.session.state['input_seen_items']`.
+Your task is to weave these items into a clear, concise, and natural-sounding sentence that describes the scene.
+Do not just list the items. Create a flowing description.
+
+Example:
+- input_seen_items: ["coffee mug", "laptop", "notebook"]
+- Your Output: "It looks like you have a work or study area set up, with a laptop, a notebook, and a coffee mug on the surface in front of you."
+
+Example:
+- input_seen_items: ["apple", "knife", "cutting board"]
+- Your Output: "I see you might be preparing a snack, as there is an apple, a knife, and a cutting board visible."
+
+Your entire response should be the descriptive text.
+"""
+
+TEXT_READER_INSTRUCTION = """
+You are a Text Reader assistant for visually impaired users.
+Your goal is to help the user read text in their environment.
+You MUST use the `perform_ocr_on_last_frame` tool to read the text.
+If the user gives a hint about where the text is (e.g., "read the label on the can"), pass this as the 'area_of_interest' to the tool.
+Your final response to the user should be the direct output from the `perform_ocr_on_last_frame` tool.
+Do not add any conversational filler like "Sure, here is the text:". Just provide the text that was read.
+"""
+
+ACCESSIBILITY_ORCHESTRATOR_INSTRUCTION = """
+You are a specialized dispatcher for accessibility requests. Your job is to analyze the user's request and delegate it to the correct specialist agent. You must not answer the user directly.
+
+- **IF** the user wants a description of their surroundings (e.g., "what do you see?", "describe the scene for me"):
+    You **MUST** call the `SceneDescriberAgent`.
+
+- **IF** the user wants to read something (e.g., "what does this say?", "read this label", "can you read the text on this box?"):
+    You **MUST** call the `TextReaderAgent`.
+
+You must call one, and only one, of these two specialist agents based on the user's intent. Pass the user's original request to the chosen agent.
+"""
 
 
 
@@ -753,6 +845,62 @@ def create_streaming_agent_with_mcp_tools(
 
     all_root_agent_tools.append(intent_router_agent_tool)
     logging.info("IntentRouterAgent created and added to Root Agent's tools.")
+
+    # --- Create Accessibility Agents (Following the specified ADK Style) ---
+
+    # Agent 1: SceneDescriberAgent (Specialist)
+    scene_describer_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="SceneDescriberAgent",
+        instruction=SCENE_DESCRIBER_INSTRUCTION,
+        description="Describes a scene based on a list of visible objects for visually impaired users.",
+        # This agent reads from session state, so it doesn't need tools.
+        **shared_callbacks
+    )
+    logging.info(f"SceneDescriberAgent instance created: {scene_describer_agent.name}")
+
+    # Wrap it in an AgentTool to be called by the orchestrator
+    scene_describer_agent_tool = AgentTool(agent=scene_describer_agent)
+    if hasattr(scene_describer_agent_tool, 'run_async') and callable(getattr(scene_describer_agent_tool, 'run_async')):
+        scene_describer_agent_tool.func = scene_describer_agent_tool.run_async # type: ignore
+
+    # Agent 2: TextReaderAgent (Specialist)
+    text_reader_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="TextReaderAgent",
+        instruction=TEXT_READER_INSTRUCTION,
+        description="Reads text from the user's environment using an OCR tool.",
+        tools=[perform_ocr_on_last_frame],  # Give it the specific OCR tool
+        **shared_callbacks
+    )
+    logging.info(f"TextReaderAgent instance created: {text_reader_agent.name}")
+
+    # Wrap it in an AgentTool to be called by the orchestrator
+    text_reader_agent_tool = AgentTool(agent=text_reader_agent)
+    if hasattr(text_reader_agent_tool, 'run_async') and callable(getattr(text_reader_agent_tool, 'run_async')):
+        text_reader_agent_tool.func = text_reader_agent_tool.run_async # type: ignore
+
+    # Agent 3: AccessibilityOrchestratorAgent (Dispatcher)
+    accessibility_orchestrator_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="AccessibilityOrchestratorAgent",
+        instruction=ACCESSIBILITY_ORCHESTRATOR_INSTRUCTION,
+        description="Dispatches accessibility-related tasks to the appropriate specialist agent (SceneDescriber or TextReader).",
+        # This agent's tools are the other specialist agents
+        tools=[scene_describer_agent_tool, text_reader_agent_tool],
+        **shared_callbacks
+    )
+    logging.info(f"AccessibilityOrchestratorAgent instance created: {accessibility_orchestrator_agent.name}")
+
+    # Wrap the orchestrator itself in an AgentTool so the RootAgent can call it
+    accessibility_orchestrator_agent_tool = AgentTool(agent=accessibility_orchestrator_agent)
+    if hasattr(accessibility_orchestrator_agent_tool, 'run_async') and callable(getattr(accessibility_orchestrator_agent_tool, 'run_async')):
+        accessibility_orchestrator_agent_tool.func = accessibility_orchestrator_agent_tool.run_async # type: ignore
+
+    # Add the main orchestrator tool to the root agent's tool list
+    all_root_agent_tools.append(accessibility_orchestrator_agent_tool)
+    logging.info("AccessibilityOrchestratorAgent wrapped as a tool and added to Root Agent's tools.")
+
 
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
