@@ -88,6 +88,18 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   `OpenFDASearchAgent`: An `LlmAgent` for querying the live OpenFDA API for drug adverse events.
 6.  **MCP Servers:** External processes (Stdio servers for CocktailDB, Weather, Google Maps) that provide tool functionalities via the Model Context Protocol.
 
+7.  **Research Workflow:**
+    *   The `MasterResearchSynthesizer` is a sequential agent that manages a deep research pipeline. It coordinates parallel data gathering, insight extraction, and the generation of a final report composed of text, charts, and images from multiple synthesis agents.
+8.  **Accessibility Workflow:**
+    *   The `AccessibilityOrchestratorAgent` is triggered by accessibility-related queries (e.g., "what do you see?", "read this label").
+    *   It analyzes the user's intent and delegates to one of two specialist agents:
+        *   **`SceneDescriberAgent`**: Uses the list of visually identified items from the session state to construct a natural-language description of the environment.
+        *   **`TextReaderAgent`**: Uses a dedicated tool (`perform_ocr_on_last_frame`) that calls the **Google Cloud Vision API** to accurately extract and read text from the live video feed.
+9.  **Firebase Authentication:**
+    *   The frontend uses the Firebase client SDK to handle Google Sign-In and retrieve a secure ID token.
+    *   The backend uses the Firebase Admin SDK to verify this token upon a WebSocket connection attempt, ensuring only authenticated users can interact with the agent. The user's Firebase UID is used as the session ID.
+
+
 
 ## Firebase Authentication
 

@@ -84,7 +84,7 @@ async def save_interaction_after_model_callback( # Changed to async def
     This runs *after* the model generates a response.
     """
     # Add an unmissable print statement for debugging. This will print to your server's console.
-    if not mongo_memory_service or mongo_memory_service.collection is None:
+    if not mongo_memory_service or mongo_memory_service.interaction_history is None:
         logger.warning("MongoMemoryService not available in save_interaction_callback. Skipping save.")
         return None
 
@@ -111,8 +111,8 @@ async def save_interaction_after_model_callback( # Changed to async def
 
         # Correctly get current turn count for the sequence
         current_turn_count_in_db = 0
-        if mongo_memory_service.collection is not None: # Check again before using
-            current_turn_count_in_db = mongo_memory_service.collection.count_documents(
+        if mongo_memory_service.interaction_history is not None: # Check again before using
+            current_turn_count_in_db = mongo_memory_service.interaction_history.count_documents(
                 {"user_id": user_id, "session_id": session_id}
             )
         turn_sequence = current_turn_count_in_db + 1
@@ -140,41 +140,53 @@ async def load_memory_before_model_callback( # Changed to async def
     llm_request: LlmRequest # ADK provides this specific arg for before_model
 ) -> Optional[LlmResponse]:
     """
-    Retrieves the last few chronological interactions from MongoDB to provide
-    short-term context to the LLM. It does NOT perform a vector search.
+    Retrieves recent interactions and the user's persona from MongoDB to provide
+    context to the LLM.
     """
-    if not mongo_memory_service or mongo_memory_service.collection is None:
+    if not mongo_memory_service or mongo_memory_service.interaction_history is None:
         logger.warning("MongoMemoryService not available in load_memory_before_model_callback. Skipping memory load.")
         return None 
 
     try:
         user_id = callback_context._invocation_context.session.user_id
         session_id = callback_context._invocation_context.session.id
-        # --- SIMPLIFIED LOGIC ---
-        # Always fetch the last few chronological turns for immediate context.
-        # The DeepMemoryRecallAgent is responsible for vector search on explicit user requests.
+
+        # --- NEW: Persona Loading ---
+        persona_summary = ""
+        persona = mongo_memory_service.get_persona(user_id)
+        if persona:
+            name = persona.get('name', 'friend')
+            goals = persona.get('goals', [])
+            persona_summary = f"[System Note: You are talking to {name}. Their stated goals are: {', '.join(goals)}. Greet them personally before addressing their request.]"
+        else:
+            persona_summary = "[System Note: This is a new user. Your first action should be to call the PersonaManagementAgent to greet them and establish a persona.]"
+
+        # --- Combine with History ---
         logger.info(f"[Callback: BeforeModel] Loading recent chronological interactions (limit={DEFAULT_HISTORY_LIMIT}) for user {user_id}, session {session_id}")
         recent_interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=DEFAULT_HISTORY_LIMIT)
         
+        history_contents: List[Content] = []
         if recent_interactions:
             logger.info(f"[Callback: BeforeModel] Loaded {len(recent_interactions)} past interactions into prompt.")
             
-            history_contents: List[Content] = [] # Changed from history_parts to history_contents for clarity
             for interaction in recent_interactions:
                 if interaction.get("user_input"):
                     history_contents.append(Content(role="user", parts=[Part.from_text(text=interaction["user_input"])]))
                 if interaction.get("agent_response"):
                     history_contents.append(Content(role="model", parts=[Part.from_text(text=interaction["agent_response"])]))
-            
-            # Prepend the loaded history to the current request's contents.
-            if llm_request.contents:
-                llm_request.contents = history_contents + llm_request.contents
-            else:
-                # This case is unlikely if a user just sent a message, but for safety:
-                llm_request.contents = history_contents
         else:
             logger.info(f"[Callback: BeforeModel] No relevant past interactions found for user {user_id}, session {session_id}.")
+
+        # --- Prepending to the Prompt ---
+        # The order is important: System Note, then History, then current query.
+        # Create a new Content object for the persona summary.
+        # The role 'user' is often used for system-level instructions that the model should see.
+        persona_content = Content(role="user", parts=[Part.from_text(text=persona_summary)])
+
+        if llm_request.contents:
+            # Prepend the persona content, then the history, to the current request's contents.
+            llm_request.contents = [persona_content] + history_contents + llm_request.contents
+        else:
+            llm_request.contents = [persona_content] + history_contents
     except Exception as e:
         logger.error(f"Error in load_memory_before_model_callback: {e}", exc_info=True)
-
-    return None

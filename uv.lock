@@ -18,6 +18,7 @@ dependencies = [
     { name = "google-cloud" },
     { name = "google-cloud-logging" },
     { name = "google-cloud-texttospeech" },
+    { name = "google-cloud-vision" },
     { name = "google-generativeai" },
     { name = "matplotlib" },
     { name = "mcp" },
@@ -38,6 +39,7 @@ requires-dist = [
     { name = "google-cloud", specifier = ">=0.34.0" },
     { name = "google-cloud-logging", specifier = ">=3.11.3" },
     { name = "google-cloud-texttospeech", specifier = ">=2.27.0" },
+    { name = "google-cloud-vision", specifier = ">=3.10.2" },
     { name = "google-generativeai", specifier = ">=0.8.5" },
     { name = "matplotlib", specifier = ">=3.10.3" },
     { name = "mcp", specifier = ">=1.6.0" },
@@ -792,6 +794,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/5a/66/b706c1316467b8cc304e0b6c6a22414abd23e41fd4d9f6af819c0404790b/google_cloud_trace-1.16.1.tar.gz", hash = "sha256:15308b04f12d958f2b3831a4f76b97c61c0c7a46804bdc570d19024938029d9a", size = 97349, upload-time = "2025-03-17T11:37:38.768Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3b/10/6d2189c92e8a8ecf50cd13281436f72b91d6509e31b1c21363b097561be3/google_cloud_trace-1.16.1-py3-none-any.whl", hash = "sha256:a4a6c90f7507823024c43ed7890baecf68ebd8cb20a6d7e03622c5f04087fef4", size = 103303, upload-time = "2025-03-17T11:37:36.912Z" },
+]
+
+[[package]]
+name = "google-cloud-vision"
+version = "3.10.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/14/7e/6bf616c5bf22a0d7943082318a99f5cb09046605e4077dc5366a80326a12/google_cloud_vision-3.10.2.tar.gz", hash = "sha256:649380faab8933440b632bf88072c0c382a08d49ab02bc0b4fba821882ae1765", size = 570339, upload-time = "2025-06-12T01:09:59.24Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/39/aa/db9febba7b5bd9c9d772e935a5c495fb2b4ee05299e46c6c4b1e7c0b66b2/google_cloud_vision-3.10.2-py3-none-any.whl", hash = "sha256:42a17fbc2219b0a88e325e2c1df6664a8dafcbae66363fb37ebcb511b018fc87", size = 527877, upload-time = "2025-06-12T01:09:57.275Z" },
 ]
 
 [[package]]

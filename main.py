@@ -100,7 +100,7 @@ GOOGLE_MAPS_API_KEY_SECRET_NAME = os.environ.get("GOOGLE_MAPS_API_KEY_SECRET_NAM
 SECRET_MANAGER_PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT", "") # Your GCP Project ID
 
 def create_mongo_memory():
-    return MongoMemory(db_name=DEFAULT_MEMORY_DB_NAME, collection_name=DEFAULT_MEMORY_COLLECTION_NAME)
+    return MongoMemory(db_name=DEFAULT_MEMORY_DB_NAME)
 
 # --- MCP Server Parameter Definitions & Pydantic Model ---
 # ... (AllServerConfigs, weather_server_params, ct_server_params remain the same) ...

@@ -48,24 +48,29 @@ GEMINI_MULTIMODAL_MODEL_ID = MODEL_ID_STREAMING # Alias for clarity
 
 # --- Updated Instructions for the Root Agent ---
 ROOT_AGENT_INSTRUCTION_STREAMING = """
-Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to understand user requests, analyze their visual surroundings, and assist them. You can use tools directly for simple queries or delegate complex tasks to `ProactiveContextOrchestratorTool`.
+Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to understand user requests, analyze their visual surroundings, and assist them. You can use tools directly for simple queries or delegate complex tasks to other specialist agents.
 
-**Memory Usage:** I will provide you with relevant recent history from our conversation. Use this history to understand context, follow-ups, and clarifications.
+**Memory & Personalization:**
+*   **Recent History:** I will provide you with our recent conversation history. Use it to understand the immediate context.
+*   **Persona & Long-Term Memory:** At the start of our conversation, I will provide a system note about the user's persona.
+    *   If the user is new, your first job is to call the `PersonaManagementAgent` to greet them and ask for their name and goals.
+    *   If the user is returning, you MUST greet them by name (e.g., "Welcome back, Alex!").
+    *   If the user asks you to "remember" something or asks about a past conversation, you MUST use the `DeepMemoryRecallAgent` to search your long-term memory.
 
-**Deep Memory Recall:** If the user asks about a specific detail they mentioned in a *past conversation* (beyond the immediate recent history), or asks you to "remember" something specific, you MUST use the `DeepMemoryRecallAgent` tool. This tool specializes in searching through all past interactions. You should pass the user's question as the 'request' to this tool.
-**Crucially, if the user asks about a personal preference or a fact they previously stated (e.g., "what is my favorite smoothie?"), you MUST use the `DeepMemoryRecallAgent` tool to search for older facts.**
+**Core Workflow:**
 
-**Personalization:** If you identify a user preference or a recurring topic from the conversation history, try to incorporate it into your responses to provide a more personalized experience. For example, if the user mentioned their favorite color, you can refer to it in a relevant context.
+1.  **Persona Check & Welcome (CRITICAL FIRST STEP):**
+    *   At the start of every new session, I will tell you if a known persona exists for this user.
+    *   **If no persona exists**, you **MUST** first call the `PersonaManagementAgent` to conduct the "first meeting" with the user. Pass the user's initial query to it. The output of this tool will be your first response to the user.
+    *   **If a persona exists**, I will provide you with a summary. You **MUST** use this to greet the user personally (e.g., "Welcome back, Alex!"). After the greeting, proceed to step 2 with their request.
 
+2.  **Visual Scene Analysis (Multimodal Perception)**:
+    *   Analyze incoming video frames to identify relevant objects ('seen_items') and infer context ('initial_context_keywords').
 
-Core Capabilities:
-1.  **Visual Scene Analysis (Multimodal Perception)**:
-    *   When the user's query implies needing to understand their environment, carefully analyze incoming video frames.
-    *   Identify relevant objects ('seen_items').
-    *   Also, try to infer 'initial_context_keywords' from the scene and query (e.g., "cocktail_making", "board_game_setup").
-2.  **Direct Tool Usage (for simple, direct queries)**:
+    
+3.  **Direct Tool Usage (for simple, direct queries)**:
     *   You have direct access to tools for: cocktails, weather. Use these for straightforward requests.
-3.  **Delegation to `ProactiveContextOrchestrator` tool**:
+4.  **Delegation to `ProactiveContextOrchestrator` tool**:
     *   This tool is very powerful. It can monitor context, make proactive suggestions, or execute complex reactive tasks.
     *   **ALWAYS POPULATE SESSION STATE BEFORE CALLING `ProactiveContextOrchestrator`**:
         *   `ctx.session.state['input_user_goal'] = "The user's stated goal or query"`
@@ -79,30 +84,54 @@ Core Capabilities:
         *   Look for `ctx.session.state['proactive_suggestion_to_user']`. If present, this is a suggestion from the orchestrator. Present this to the user.
         *   If the user accepts the suggestion in a follow-up turn, set `ctx.session.state['accepted_precomputed_data'] = ctx.session.state['proactive_precomputed_data_for_next_turn']` and call the tool again with the user's affirmative response as the new 'user_goal'.
         *   If no proactive suggestion, the tool will handle the task reactively, and its direct output (your final response) will be the answer.
-4.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous.
-5.  **Delegation to `MasterResearchSynthesizer`**:
-    *   If the user's query is clearly biomedical or research-oriented (e.g., "find papers on...", "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
+5.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous.
+6.  **Delegation to `MasterResearchSynthesizer`**:
+    *   If the user's query is clearly involves clinical trials (e.g., "find papers on...", "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
 
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
+7.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `SpecialSearchAgent`.  
 
-6.  **Handling Ingestion Confirmation for Deep Dive Results:**
+8.  **Handling Ingestion Confirmation for Deep Dive Results:**
     *   If your last response to the user (likely from the `MasterResearchSynthesizer` via the `DeepDiveReportAgent`) included a question about ingesting additional findings (e.g., "Would you like to attempt to ingest them into our database?"), and the user's current response is affirmative (e.g., "yes", "please ingest them", "proceed with ingestion"):
         1. You MUST call the `BulkIngestionProcessorAgent` tool. Pass an empty request or a simple instruction like 'Process pending ingestion items' as the request argument to the tool (e.g., `BulkIngestionProcessorAgent(request='Process pending ingestion items')`).
         2. The output from `BulkIngestionProcessorAgent` will be your response to the user.
     *   If the user declines or asks something else, proceed with your normal conversational flow
 
-7.  ** Delegation for Accessibility**:
+9.  ** Delegation for Accessibility**:
     *   **IF** the user's request is clearly for accessibility assistance (e.g., "describe what you see", "what's in front of me?", "can you read this for me?", "what does this label say?"), you **MUST** delegate the task to the `AccessibilityOrchestratorAgent` tool.
     *   **Crucially**, before calling the tool, ensure you have populated `ctx.session.state['input_seen_items']` based on your visual analysis.
     *   The direct output from the `AccessibilityOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
 
     
-8.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+10.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
 """
 
+# --- Instruction for the new Persona Management Agent ---
+PERSONA_MANAGER_INSTRUCTION = """
+You are a friendly and efficient onboarding specialist. Your goal is to manage user personas.
+
+**Workflow:**
+1.  **Check for Persona:** The system will tell you if a persona already exists for the user.
+2.  **New User (No Persona):** If there is no persona, your job is to greet the user for the first time and ask 1-2 key questions to establish a baseline. For example: "Welcome! To help me assist you better, could you tell me your name and what you're generally hoping to achieve with our conversations?"
+3.  **Summarize and Save:** Once the user responds, summarize their answers into a structured format (name, goals, preferences) and call the `create_or_update_persona` tool to save it.
+4.  **Existing User (Persona Found):** Your job is done. Simply output a special token like `[PERSONA_CONFIRMED]` so the main agent knows to proceed.
+5.  **Detecting Updates:** In any conversation, if a user explicitly states a new preference or corrects a fact about themselves (e.g., "Actually, I prefer to be called Alex," or "My main goal now is to build a new app"), you must call the `create_or_update_persona` tool with the new information.
+"""
+
+# --- Tool for the Persona Agent ---
+async def create_or_update_persona(tool_context: ToolContext, name: str, goals: List[str]) -> str:
+    """A tool to save or update a user's persona information. The user_id is retrieved from the session context for security."""
+    invocation_context = tool_context._invocation_context
+    user_id = invocation_context.session.user_id
+
+    # The persona_data dictionary can be expanded later to include more fields like 'preferences'
+    # For now, we'll stick to what the agent is instructed to collect.
+    persona_data = {"name": name, "goals": goals}
+    mongo_memory_service.create_or_update_persona(user_id, persona_data)
+    return f"Successfully saved persona for {name}."
 
 
 # NEW: Instruction for the "Smart Ingestion Router" Agent
@@ -173,11 +202,32 @@ You are a highly specialized Data Visualization Agent. Your sole purpose is to r
 
 INTENT_ROUTER_INSTRUCTION = """
 You are a highly efficient request dispatcher. Your only job is to analyze the user's research query and delegate it to the correct specialist agent. You must not answer the user directly.
-- **IF** the query asks for a **trend over time** or a **plot of publications per year**, you **MUST** call the `TrendAnalysisAgent`.
+- **IF** the query asks for a **trend over time** or a **plot of publications per year**, you **MUST** call the `SpecialSearchAgent`.
 - **IF** the query asks for a **synthesis of findings**, to **connect research to trials**, or to **show visual evidence** (e.g., "show me a scan of..."), you **MUST** call the `MasterResearchSynthesizer`.
 You must call one and only one of these two specialist agents.
 """
 
+
+# --- Instruction for the new Special Search Agent ---
+SPECIAL_SEARCH_AGENT_INSTRUCTION = """
+You are a special search agent. You have access to a Google Search tool and a Visualization tool. Your primary goal is to provide sourced information.
+
+**Core Functionality:**
+- Use the `google_search_agent` for in-depth research on user queries.
+- Use the `VisualizationAgent` to create charts and graphs when explicitly asked for a visualization.
+
+**Workflow and Sourcing (CRITICAL):**
+1.  Call the `google_search_agent` with the user's query.
+2.  Analyze the tool's response.
+3.  **If the tool returns a JSON object containing a 'summary' and a 'sources' list of URLs:**
+    - Present the summary to the user.
+    - After the summary, add a "Sources:" section and list each URL.
+4.  **If the tool returns only a plain text summary:**
+    - Present the summary to the user.
+    - You **MUST** append the following note: "This information was gathered from a general web search. Specific source URLs were not provided for this summary."
+
+**Your final response must always be transparent about where the information comes from.**
+"""
 
 # --- AGENT 2: Key Insight Extractor ---
 KEY_INSIGHT_EXTRACTOR_INSTRUCTION = """
@@ -351,10 +401,15 @@ Do not add, edit, or summarize anything. Just stack the available report compone
 """
 
 DEEP_MEMORY_RECALL_INSTRUCTION = """
-You are a memory retrieval specialist. Your only job is to call the `search_past_conversations` tool with the user's query.
-The user's query will be provided as your input.
-You MUST pass the user's exact query as the `query_text` argument of the `search_past_conversations` tool.
-Do not add any commentary. Your output is the direct result from the tool.
+You are a memory retrieval specialist. Your goal is to find relevant information from the user's past conversations.
+
+**Workflow:**
+1.  **Call the Search Tool:** Use the `search_past_conversations` tool with the user's query.
+2.  **Analyze the Results:** Review the search results to determine if they are relevant to the user's query. The results may contain multiple sources, including persona data and past interactions. Look for the most relevant information.
+3.  **Respond to the User:**
+    *   If you find relevant information, present it to the user in a clear and concise way. Summarize the key points if necessary.
+    *   If you do not find any relevant information, inform the user that you couldn't find anything related to their query.
+    *   If the results are ambiguous, ask the user for more clarification.
 """
 
 
@@ -491,6 +546,21 @@ def create_streaming_agent_with_mcp_tools(
     # These agents will be orchestrated by ProactiveContextOrchestratorAgent.
     # Their tools will be effectively the ones available to the Root Agent,
     # as they will declare tool calls that the Root Agent's framework executes.
+
+    # --- NEW: Create and wrap the Persona Management Agent ---
+    persona_management_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="PersonaManagementAgent",
+        instruction=PERSONA_MANAGER_INSTRUCTION,
+        description="Manages user persona creation and updates. Greets new users and saves their details.",
+        tools=[create_or_update_persona],
+        **shared_callbacks # Allow this agent's interactions to be saved
+    )
+    persona_management_agent_tool = AgentTool(agent=persona_management_agent)
+    if hasattr(persona_management_agent_tool, 'run_async'):
+        persona_management_agent_tool.func = persona_management_agent_tool.run_async
+    all_root_agent_tools.append(persona_management_agent_tool)
+    logging.info("PersonaManagementAgent wrapped as a tool and added to Root Agent's tools.")
 
     environmental_monitor_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID, # Needs multimodal if it directly processes images
@@ -667,6 +737,20 @@ def create_streaming_agent_with_mcp_tools(
     if hasattr(visualization_agent_tool, 'run_async') and callable(getattr(visualization_agent_tool, 'run_async')):
        visualization_agent_tool.func = visualization_agent_tool.run_async # type: ignore
 
+    # --- Create the Special Search Agent ---
+    special_search_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="SpecialSearchAgent",
+        instruction=SPECIAL_SEARCH_AGENT_INSTRUCTION,
+        description="A special search agent that can perform in-depth research and create visualizations.",
+        tools=[google_search_agent_tool, visualization_agent_tool],
+        **shared_callbacks
+    )
+    special_search_agent_tool = AgentTool(agent=special_search_agent)
+    if hasattr(special_search_agent_tool, 'run_async'):
+        special_search_agent_tool.func = special_search_agent_tool.run_async
+    all_root_agent_tools.append(special_search_agent_tool)
+    logging.info("SpecialSearchAgent wrapped as a tool and added to Root Agent's tools.")
 
     trend_data_fetcher_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
@@ -753,7 +837,7 @@ def create_streaming_agent_with_mcp_tools(
     # NEW: Wrapper function to correctly handle context for the memory search tool
     async def search_past_conversations(tool_context: ToolContext, query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Searches through all past conversations to recall specific details or facts previously mentioned by the user.
+        Searches through all past conversations and persona data to recall specific details or facts previously mentioned by the user.
         Use this when the user asks you to 'remember' something, or asks about a personal preference they stated earlier,
         or refers to a past discussion beyond the immediate recent turns.
         Args:
@@ -761,12 +845,12 @@ def create_streaming_agent_with_mcp_tools(
             query_text (str): The specific query or detail the user is asking to recall.
             limit (int): The maximum number of relevant past interactions to retrieve.
         Returns:
-            A list of dictionaries, each representing a relevant past interaction.
+            A list of dictionaries, each representing a relevant past interaction or persona data.
         """
         invocation_context = tool_context._invocation_context
         user_id = invocation_context.session.user_id
         session_id = invocation_context.session.id
-        return await mongo_memory_service.vector_search_interactions(user_id, session_id, query_text, limit)
+        return await mongo_memory_service.search_persona_and_interactions(user_id, session_id, query_text, limit)
 
     # NEW: Create the Deep Memory Recall agent and wrap it as a tool
     deep_memory_recall_agent = LlmAgent(
@@ -835,7 +919,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=INTENT_ROUTER_INSTRUCTION,
         description="The master research dispatcher. Analyzes user queries and routes them to the correct specialist workflow.",
         tools=[
-            trend_analysis_tool,
+            special_search_agent_tool,
             master_research_synthesizer_tool 
         ]
     )

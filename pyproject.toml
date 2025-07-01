@@ -13,6 +13,7 @@ dependencies = [
     "mcp>=1.6.0",
     "uvicorn>=0.34.1",
     "google-cloud-logging >= 3.11.3",
+    "google-cloud-vision>=3.10.2",
     "pymongo >= 4.10.1",
     "pandas >= 2.2.3",
     "pyarrow >= 20.0.0",
