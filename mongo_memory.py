@@ -71,7 +71,7 @@ def get_mongodb_uri_from_sources() -> Optional[str]:
 
 
 class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
-    def __init__(self, db_name: str, collection_name: str):
+    def __init__(self, db_name: str):
         self.client: Optional[MongoClient] = None
         self.db = None
         self.collection = None
@@ -88,9 +88,14 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             logger.info("Pinged your deployment. You successfully connected to MongoDB!")
             super().__init__() # Initialize BaseMemoryService with app_name
 
+            # --- Define specialized collections ---
             self.db = self.client[db_name]
-            self.collection = self.db[collection_name]
-            logger.info(f"Connected to MongoDB and using database: '{db_name}', collection: '{collection_name}'")
+            self.interaction_history = self.db["interaction_history"] # Your existing collection
+            self.personas = self.db["personas"]
+            self.toolbox = self.db["toolbox"]
+            self.workflows = self.db["workflows"]
+            self.collection = self.interaction_history # For backward compatibility with some methods if needed
+            logger.info(f"Connected to MongoDB. Specialized collections are ready in db '{db_name}'.")
 
             # Initialize Vertex AI TextEmbeddingModel
             try:
@@ -100,38 +105,47 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             except Exception as e:
                 logger.error(f"Failed to initialize Vertex AI TextEmbeddingModel: {e}", exc_info=True)
                 self.embedding_model = None
-            self._ensure_indexes()
+            self._ensure_all_indexes()
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB at resolved URI or initialize: {e}", exc_info=True)
             self.client = None
             self.db = None
             self.collection = None
 
-    def _ensure_indexes(self):
+    def _ensure_all_indexes(self):
         # CORRECTED CHECK
-        if self.collection is None:
+        if self.interaction_history is None:
             logger.warning("MongoDB collection not available. Skipping index creation.")
             return
         try:
-            self.collection.create_index(
+            # Index for interaction history
+            self.interaction_history.create_index(
                 [("user_id", DESCENDING), ("session_id", DESCENDING), ("timestamp", DESCENDING)],
                 name="user_session_timestamp_idx",
                 background=True
             )
-            self.collection.create_index(
+            self.interaction_history.create_index(
                 [("user_input", TEXT), ("agent_response", TEXT)],
                 name="interaction_text_idx",
                 default_language="english",
                 background=True
             )
-            logger.info("MongoDB indexes ensured (or creation initiated in background).")
+
+            # Index for personas (unique per user)
+            self.personas.create_index("user_id", unique=True, background=True)
+
+            # Index for toolbox (for semantic search on tool descriptions)
+            # This would be an Atlas Vector Search index similar to your interaction_history
+            # For simplicity, we'll just log it here.
+
+            logger.info("MongoDB indexes for all memory types ensured.")
         except Exception as e:
             logger.error(f"Error ensuring MongoDB indexes: {e}", exc_info=True)
 
         # Check and create Atlas Search Index for hybrid search
         atlas_search_index_name = "default" # As used in hybrid_search_interactions
         try:
-            existing_search_indexes = list(self.collection.list_search_indexes())
+            existing_search_indexes = list(self.interaction_history.list_search_indexes())
             if any(idx.get('name') == atlas_search_index_name for idx in existing_search_indexes):
                 logger.info(f"Atlas Search Index '{atlas_search_index_name}' already exists. Skipping creation.")
             else:
@@ -162,10 +176,48 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                   "name": atlas_search_index_name
                 }
                 search_index_model = SearchIndexModel(definition=index_definition, name=atlas_search_index_name)
-                self.collection.create_search_index(model=search_index_model)
+                self.interaction_history.create_search_index(model=search_index_model)
                 logger.info(f"Successfully initiated creation of Atlas Search Index '{atlas_search_index_name}'. It may take a few minutes to become active.")
         except Exception as e:
             logger.error(f"Error ensuring Atlas Search Index '{atlas_search_index_name}': {e}", exc_info=True)
+
+    # --- NEW: Persona Memory Functions ---
+    def get_persona(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """Retrieves the persona document for a given user."""
+        try:
+            persona = self.personas.find_one({"user_id": user_id})
+            if persona and "_id" in persona:
+                persona["_id"] = str(persona["_id"])
+            return persona
+        except Exception as e:
+            logger.error(f"Error retrieving persona for user {user_id}: {e}")
+            return None
+
+    def create_or_update_persona(self, user_id: str, persona_data: Dict[str, Any]):
+        """
+        Creates or updates a user's persona. The agent provides the data.
+        Schema Example:
+        {
+            "user_id": "user123",
+            "name": "Alex",
+            "preferences": {
+                "communication_style": "concise",
+                "interests": ["AI", "hiking"]
+            },
+            "goals": ["Learn about agentic memory"],
+            "last_updated": datetime.now(timezone.utc)
+        }
+        """
+        try:
+            # Use upsert=True to create the document if it doesn't exist, or update it if it does.
+            self.personas.update_one(
+                {"user_id": user_id},
+                {"$set": persona_data, "$currentDate": {"last_updated": True}},
+                upsert=True
+            )
+            logger.info(f"Successfully created/updated persona for user {user_id}.")
+        except Exception as e:
+            logger.error(f"Error saving persona for user {user_id}: {e}")
 
     async def add_session_to_memory(self, session: Session) -> None:
         """
@@ -193,7 +245,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
 
     def add_interaction(self, user_id: str, session_id: str, user_input: str, agent_response: str, turn_sequence: int):
         # CORRECTED CHECK
-        if self.collection is None:
+        if self.interaction_history is None:
             logger.error("MongoDB collection not available. Cannot add interaction.")
             return
         # Generate embedding for the interaction (moved outside the dict definition)
@@ -219,7 +271,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
 
         }
         try:
-            self.collection.insert_one(interaction)
+            self.interaction_history.insert_one(interaction)
             logger.debug(f"Added interaction to MongoDB for user {user_id}, session {session_id}")
         except Exception as e:
             logger.error(f"Error adding interaction to MongoDB: {e}", exc_info=True)
@@ -238,8 +290,8 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             
         # Determine turn_sequence - this logic is duplicated from callbacks.py
         current_turn_count_in_db = 0
-        if self.collection is not None:
-            current_turn_count_in_db = self.collection.count_documents(
+        if self.interaction_history is not None:
+            current_turn_count_in_db = self.interaction_history.count_documents(
                 {"user_id": user_id, "session_id": session_id}
             )
         turn_sequence = current_turn_count_in_db + 1
@@ -248,11 +300,11 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
 
     def get_recent_interactions(self, user_id: str, session_id: str, limit: int = DEFAULT_HISTORY_LIMIT) -> List[Dict[str, Any]]:
         # CORRECTED CHECK
-        if self.collection is None:
+        if self.interaction_history is None:
             logger.error("MongoDB collection not available. Cannot get recent interactions.")
             return []
         try:
-            cursor = self.collection.find(
+            cursor = self.interaction_history.find(
                 {"user_id": user_id, "session_id": session_id}
             ).sort("timestamp", DESCENDING).limit(limit)
             
@@ -286,7 +338,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
 
     def search_interactions_by_keyword(self, user_id: str, session_id: Optional[str], query: str, limit: int = 3) -> List[Dict[str, Any]]:
         # CORRECTED CHECK
-        if self.collection is None:
+        if self.interaction_history is None:
             logger.warning("MongoDB collection not available. Cannot search interactions by keyword.")
             return []
         try:
@@ -294,7 +346,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             if session_id:
                 mongo_db_query["session_id"] = session_id
 
-            cursor = self.collection.find(mongo_db_query, {"score": {"$meta": "textScore"}}) \
+            cursor = self.interaction_history.find(mongo_db_query, {"score": {"$meta": "textScore"}}) \
                                    .sort([("score", {"$meta": "textScore"})]) \
                                    .limit(limit)
             interactions = list(cursor)
@@ -320,7 +372,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
 
     async def clear_memory(self, ctx: InvocationContext, user_id: str, session_id: str) -> None:
         """Clears memory from the memory service. This method is required by BaseMemoryService."""
-        self.collection.delete_many({"user_id": user_id, "session_id": session_id})
+        self.interaction_history.delete_many({"user_id": user_id, "session_id": session_id})
 
 
 
@@ -328,7 +380,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         """
         Performs a hybrid search (combining text and vector search) on conversation history.
         """
-        if self.collection is None:
+        if self.interaction_history is None:
             logger.error("MongoDB collection not available. Cannot perform hybrid search.")
             return []
         if self.embedding_model is None:
@@ -355,9 +407,14 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                         "index": "default", # Ensure this matches your Atlas Search index name
                         "path": "embedding",
                         "queryVector": query_embedding,
-                        "numCandidates": 100,
-                        "limit": limit,
-                        "filter": {"user_id": user_id, "session_id": session_id} # Pre-filter results
+                        "numCandidates": limit + 50,
+                        "limit": limit + 10,
+                        "filter": {"user_id": user_id} # Pre-filter results
+                    }
+                },
+                {
+                    "$match": {
+                        "user_input": {"$not": {"$regex": "^remember our", "$options": "i"}}
                     }
                 },
                 {
@@ -376,17 +433,36 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                 {"$limit": limit}
             ]
 
-            results = list(self.collection.aggregate(pipeline))
+            results = list(self.interaction_history.aggregate(pipeline))
             logger.debug(f"Vector search for '{query_text}' found {len(results)} interactions.")
             return results
         except Exception as e:
             logger.error(f"Error performing hybrid search: {e}", exc_info=True)
             return []
 
+    async def search_persona_and_interactions(self, user_id: str, session_id: str, query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Searches both persona data and interaction history for relevant information.
+        """
+        results = []
+        # Search persona data
+        persona_data = self.get_persona(user_id)
+        if persona_data:
+            # A simple check to see if the query is about the user's name
+            if "name" in query_text.lower() or "who am i" in query_text.lower():
+                results.append({"source": "persona", "data": persona_data})
+
+        # Search interaction history
+        enriched_query = f"A conversation about: {query_text}"
+        interaction_results = await self.vector_search_interactions(user_id, session_id, enriched_query, limit)
+        if interaction_results:
+            results.extend([{"source": "interaction", "data": item} for item in interaction_results])
+
+        return results
+
 
 
 # Instantiate the memory service
 mongo_memory_service = MongoMemory(
-    db_name=DEFAULT_MEMORY_DB_NAME,
-    collection_name=DEFAULT_MEMORY_COLLECTION_NAME
+    db_name=DEFAULT_MEMORY_DB_NAME
 )
