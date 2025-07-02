@@ -102,8 +102,18 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
     *   **Crucially**, before calling the tool, ensure you have populated `ctx.session.state['input_seen_items']` based on your visual analysis.
     *   The direct output from the `AccessibilityOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
 
-    
-10.  **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+10. **Delegation for Auditory Assistance**:
+    *   **IF** the user's request is clearly for auditory assistance (e.g., "what was that sound?", "how do I sound?"):
+        You **MUST** delegate the task to the `AuditoryAssistanceOrchestratorAgent` tool.
+    *   The direct output from the `AuditoryAssistanceOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
+
+12. **Delegation for Cognitive Assistance**:
+    *   **IF** the user asks you to simplify text (e.g., "can you make this easier to read?", "explain this to me simply"):
+        1.  First, you **MUST** call the `set_text_for_simplification` tool with the text that needs to be simplified.
+        2.  Then, you **MUST** call the `CognitiveAssistanceOrchestratorAgent` to perform the simplification.
+    *   The direct output from the `CognitiveAssistanceOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
+
+13. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
@@ -457,6 +467,100 @@ async def perform_ocr_on_last_frame(tool_context: ToolContext, area_of_interest:
         logging.error(f"An error occurred during the Google Cloud Vision API call: {e}")
         return "I encountered an error while trying to read the text."
 
+
+# --- Instructions for Cognitive Accessibility Sub-Agents ---
+
+TEXT_SIMPLIFICATION_INSTRUCTION = """
+You are an expert at making complex text easy to understand.
+You will receive text from the session state key `text_to_simplify`.
+Your task is to rephrase this text in simple, clear, and concise language.
+Focus on the core message and remove jargon. Use shorter sentences and everyday words.
+Your entire response should be the simplified text.
+"""
+
+COGNITIVE_ASSISTANCE_ORCHESTRATOR_INSTRUCTION = """
+You are a specialized dispatcher for cognitive accessibility requests.
+Your only job is to delegate the task to the correct specialist agent.
+- **IF** the user asks to simplify text, you **MUST** call the `TextSimplificationAgent`.
+"""
+
+from google.cloud import language_v1
+from google.api_core.exceptions import GoogleAPICallError
+
+# --- Instructions for Auditory Accessibility Sub-Agents ---
+
+async def analyze_audio_sentiment(tool_context: ToolContext, text_to_analyze: str) -> str:
+    """
+    Analyzes the sentiment of a given text using the Google Cloud Natural Language API.
+    Args:
+        tool_context: The context of the tool call.
+        text_to_analyze (str): The text whose sentiment needs to be analyzed.
+    Returns:
+        A string describing the sentiment of the text.
+    """
+    try:
+        client = language_v1.LanguageServiceClient()
+        document = language_v1.Document(content=text_to_analyze, type_=language_v1.Document.Type.PLAIN_TEXT)
+        
+        logging.info(f"Analyzing sentiment for text: '{text_to_analyze}'")
+        sentiment = client.analyze_sentiment(document=document).document_sentiment
+        logging.info(f"Sentiment analysis complete. Score: {sentiment.score}, Magnitude: {sentiment.magnitude}")
+
+        # Interpret the sentiment score
+        if sentiment.score > 0.25:
+            return f"The sentiment of the text appears to be positive (Score: {sentiment.score:.2f})."
+        elif sentiment.score < -0.25:
+            return f"The sentiment of the text appears to be negative (Score: {sentiment.score:.2f})."
+        else:
+            return f"The sentiment of the text appears to be neutral (Score: {sentiment.score:.2f})."
+
+    except GoogleAPICallError as e:
+        logging.error(f"Google Cloud Natural Language API call failed: {e}", exc_info=True)
+        return "I'm sorry, I encountered an error while analyzing the sentiment."
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during sentiment analysis: {e}", exc_info=True)
+        return "An unexpected error occurred."
+
+async def recognize_ambient_sounds(tool_context: ToolContext) -> str:
+    """
+    Retrieves the latest sound events detected in the user's environment.
+    """
+    sound_events = tool_context._invocation_context.session.state.get('sound_events', [])
+    if not sound_events:
+        return "No significant ambient sounds were detected."
+    
+    # Clear the sound events from the state after they've been retrieved
+    tool_context._invocation_context.session.state['sound_events'] = []
+
+    return f"The following sounds were detected: {', '.join(sound_events)}"
+
+AUDIO_SENTIMENT_INSTRUCTION = """
+You are an expert in analyzing audio tone and sentiment.
+Your goal is to help the user understand the sentiment of what they've said.
+You MUST take the user's last utterance and pass it to the `analyze_audio_sentiment` tool's `text_to_analyze` argument.
+Your final response to the user should be the direct output from the tool.
+Do not add any conversational filler.
+"""
+
+SOUND_RECOGNITION_INSTRUCTION = """
+You are an expert at identifying ambient sounds in an environment.
+Your goal is to listen to the user's surroundings and report what you hear.
+You MUST use the `recognize_ambient_sounds` tool to identify sounds.
+Your final response to the user should be the direct output from the tool.
+Do not add any conversational filler.
+"""
+
+AUDITORY_ASSISTANCE_ORCHESTRATOR_INSTRUCTION = """
+You are a specialized dispatcher for auditory accessibility requests. Your job is to analyze the user's request and delegate it to the correct specialist agent. You must not answer the user directly.
+
+- **IF** the user asks about their tone or how they sound (e.g., "how do I sound?", "do I sound angry?"):
+    You **MUST** call the `AudioSentimentAgent`.
+
+- **IF** the user asks you to listen for something in their environment (e.g., "what's that sound?", "can you hear the doorbell?"):
+    You **MUST** call the `SoundRecognitionAgent`.
+
+You must call one, and only one, of these two specialist agents based on the user's intent.
+"""
 
 # --- Instructions for Accessibility Sub-Agents ---
 
@@ -984,6 +1088,112 @@ def create_streaming_agent_with_mcp_tools(
     # Add the main orchestrator tool to the root agent's tool list
     all_root_agent_tools.append(accessibility_orchestrator_agent_tool)
     logging.info("AccessibilityOrchestratorAgent wrapped as a tool and added to Root Agent's tools.")
+
+    # --- Create Auditory Accessibility Agents ---
+
+    # Agent 1: AudioSentimentAgent (Specialist)
+    audio_sentiment_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="AudioSentimentAgent",
+        instruction=AUDIO_SENTIMENT_INSTRUCTION,
+        description="Analyzes the user's tone of voice to determine their emotional state.",
+        tools=[analyze_audio_sentiment],
+        **shared_callbacks
+    )
+    logging.info(f"AudioSentimentAgent instance created: {audio_sentiment_agent.name}")
+
+    # Wrap it in an AgentTool to be called by the orchestrator
+    audio_sentiment_agent_tool = AgentTool(agent=audio_sentiment_agent)
+    if hasattr(audio_sentiment_agent_tool, 'run_async') and callable(getattr(audio_sentiment_agent_tool, 'run_async')):
+        audio_sentiment_agent_tool.func = audio_sentiment_agent_tool.run_async # type: ignore
+
+    # Agent 2: SoundRecognitionAgent (Specialist)
+    sound_recognition_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="SoundRecognitionAgent",
+        instruction=SOUND_RECOGNITION_INSTRUCTION,
+        description="Listens for and identifies significant ambient sounds in the user's environment.",
+        tools=[recognize_ambient_sounds],
+        **shared_callbacks
+    )
+    logging.info(f"SoundRecognitionAgent instance created: {sound_recognition_agent.name}")
+
+    # Wrap it in an AgentTool to be called by the orchestrator
+    sound_recognition_agent_tool = AgentTool(agent=sound_recognition_agent)
+    if hasattr(sound_recognition_agent_tool, 'run_async') and callable(getattr(sound_recognition_agent_tool, 'run_async')):
+        sound_recognition_agent_tool.func = sound_recognition_agent_tool.run_async # type: ignore
+
+    # Agent 3: AuditoryAssistanceOrchestratorAgent (Dispatcher)
+    auditory_assistance_orchestrator_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="AuditoryAssistanceOrchestratorAgent",
+        instruction=AUDITORY_ASSISTANCE_ORCHESTRATOR_INSTRUCTION,
+        description="Dispatches auditory accessibility tasks to the appropriate specialist agent (AudioSentiment or SoundRecognition).",
+        tools=[audio_sentiment_agent_tool, sound_recognition_agent_tool],
+        **shared_callbacks
+    )
+    logging.info(f"AuditoryAssistanceOrchestratorAgent instance created: {auditory_assistance_orchestrator_agent.name}")
+
+    # Wrap the orchestrator itself in an AgentTool so the RootAgent can call it
+    auditory_assistance_orchestrator_agent_tool = AgentTool(agent=auditory_assistance_orchestrator_agent)
+    if hasattr(auditory_assistance_orchestrator_agent_tool, 'run_async') and callable(getattr(auditory_assistance_orchestrator_agent_tool, 'run_async')):
+        auditory_assistance_orchestrator_agent_tool.func = auditory_assistance_orchestrator_agent_tool.run_async # type: ignore
+
+    # Add the main orchestrator tool to the root agent's tool list
+    all_root_agent_tools.append(auditory_assistance_orchestrator_agent_tool)
+    logging.info("AuditoryAssistanceOrchestratorAgent wrapped as a tool and added to Root Agent's tools.")
+
+    # --- Create Cognitive Accessibility Agents ---
+
+    async def set_text_for_simplification(tool_context: ToolContext, text: str) -> str:
+        """
+        A tool to place a body of text into the session state so that it can be simplified by another agent.
+        Args:
+            tool_context: The context of the tool call.
+            text (str): The text to be simplified.
+        Returns:
+            A confirmation message.
+        """
+        logging.info(f"Setting text for simplification: {text[:100]}...")
+        tool_context._invocation_context.session.state['text_to_simplify'] = text
+        return "The text has been set. Now, please call the CognitiveAssistanceOrchestratorAgent to simplify it."
+
+    # Agent 1: TextSimplificationAgent (Specialist)
+    text_simplification_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="TextSimplificationAgent",
+        instruction=TEXT_SIMPLIFICATION_INSTRUCTION,
+        description="Simplifies complex text to make it easier to understand.",
+        # This agent reads from session state, so it doesn't need tools.
+        **shared_callbacks
+    )
+    logging.info(f"TextSimplificationAgent instance created: {text_simplification_agent.name}")
+
+    # Wrap it in an AgentTool to be called by the orchestrator
+    text_simplification_agent_tool = AgentTool(agent=text_simplification_agent)
+    if hasattr(text_simplification_agent_tool, 'run_async') and callable(getattr(text_simplification_agent_tool, 'run_async')):
+        text_simplification_agent_tool.func = text_simplification_agent_tool.run_async # type: ignore
+
+    # Agent 2: CognitiveAssistanceOrchestratorAgent (Dispatcher)
+    cognitive_assistance_orchestrator_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="CognitiveAssistanceOrchestratorAgent",
+        instruction=COGNITIVE_ASSISTANCE_ORCHESTRATOR_INSTRUCTION,
+        description="Dispatches cognitive accessibility tasks to the appropriate specialist agent.",
+        tools=[text_simplification_agent_tool],
+        **shared_callbacks
+    )
+    logging.info(f"CognitiveAssistanceOrchestratorAgent instance created: {cognitive_assistance_orchestrator_agent.name}")
+
+    # Wrap the orchestrator itself in an AgentTool so the RootAgent can call it
+    cognitive_assistance_orchestrator_agent_tool = AgentTool(agent=cognitive_assistance_orchestrator_agent)
+    if hasattr(cognitive_assistance_orchestrator_agent_tool, 'run_async') and callable(getattr(cognitive_assistance_orchestrator_agent_tool, 'run_async')):
+        cognitive_assistance_orchestrator_agent_tool.func = cognitive_assistance_orchestrator_agent_tool.run_async # type: ignore
+
+    # Add the main orchestrator tool and the setter tool to the root agent's tool list
+    all_root_agent_tools.append(cognitive_assistance_orchestrator_agent_tool)
+    all_root_agent_tools.append(set_text_for_simplification)
+    logging.info("CognitiveAssistanceOrchestratorAgent and its tools have been added to the Root Agent's tools.")
 
 
 

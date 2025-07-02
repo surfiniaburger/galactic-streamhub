@@ -22,4 +22,6 @@ dependencies = [
     "firebase-admin>= 6.9.0",
     "google-cloud-texttospeech>=2.27.0",
     "pydicom >= 3.0.1",
+    "google-cloud-speech>=2.33.0",
+    "google-cloud-language>=2.17.2"
 ]
