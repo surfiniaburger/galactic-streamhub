@@ -99,6 +99,13 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   The frontend uses the Firebase client SDK to handle Google Sign-In and retrieve a secure ID token.
     *   The backend uses the Firebase Admin SDK to verify this token upon a WebSocket connection attempt, ensuring only authenticated users can interact with the agent. The user's Firebase UID is used as the session ID.
 
+10. **Auditory Accessibility Workflow:**
+    *   The `AuditoryAssistanceOrchestratorAgent` is triggered by auditory-related queries (e.g., "how do I sound?", "what's that noise?").
+    *   It analyzes the user's intent and delegates to one of two specialist agents:
+        *   **`AudioSentimentAgent`**: Uses the Google Cloud Natural Language API to analyze the sentiment of the user's speech.
+        *   **`SoundRecognitionAgent`**: Identifies and reports significant ambient sounds from the user's environment.
+
+
 
 
 ## Firebase Authentication
@@ -147,6 +154,23 @@ Galactic StreamHub now implements robust user authentication using Firebase, ens
 *   **Secure Access**: Only authenticated users can establish a WebSocket connection and interact with the agent.
 *   **User Identification**: The backend can reliably identify users based on their Firebase UID, allowing for potential future features like personalized experiences or data storage.
 *   **Standardized Authentication**: Leverages Google's robust and secure Firebase Authentication platform.
+
+## Auditory Accessibility
+
+To enhance the user's awareness and provide valuable feedback, AVA includes a suite of auditory accessibility tools. These are managed by the `AuditoryAssistanceOrchestratorAgent`, which routes user requests to the appropriate specialist.
+
+### Speech Sentiment Analysis
+
+*   **Functionality**: Users can ask about their tone or how they sound (e.g., "Do I sound angry?", "How am I coming across?").
+*   **Underlying Technology**: The `AudioSentimentAgent` takes the user's most recent speech, transcribes it to text, and uses the **Google Cloud Natural Language API** to perform detailed sentiment analysis.
+*   **User Benefit**: Provides users with real-time feedback on their vocal tone, helping them understand how they may be perceived by others. The agent returns a clear description of the detected sentiment (positive, negative, or neutral) along with a confidence score.
+
+### Ambient Sound Recognition
+
+*   **Functionality**: The agent can listen to the user's environment and identify significant background noises (e.g., "What was that sound?", "Can you hear the doorbell?").
+*   **Underlying Technology**: The `SoundRecognitionAgent` processes the incoming audio stream to detect and classify common ambient sounds, which are stored in the session state. The agent retrieves and reports these detected sounds upon request.
+*   **User Benefit**: Enhances situational awareness by identifying important environmental cues that the user might have missed, such as a doorbell, a fire alarm, or a dog barking.
+
 
 
 
