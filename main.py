@@ -24,7 +24,7 @@ from google.adk.agents import LiveRequestQueue
 from google.adk.agents.run_config import RunConfig
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from mongo_memory import MongoMemory
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
 
 from google.cloud import secretmanager 
 
@@ -66,32 +66,7 @@ DEFAULT_HISTORY_LIMIT = 5
 
 # --- MCP Server Parameter Definitions & Pydantic Model ---
 class AllServerConfigs(BaseModel):
-    configs: Dict[str, StdioServerParameters]
-
-weather_server_params = StdioServerParameters(
-    command="python",
-    args=["./mcp_server/weather_server.py"],
-)
-ct_server_params = StdioServerParameters(
-    command="python",
-    args=["./mcp_server/cocktail.py"],
-)
-# Ensure the Airbnb server is started externally if you use its tools
-# The command below is for if ADK were to manage its lifecycle,
-# but typically it's run as a separate service.
-bnb_server_params = StdioServerParameters(
-    command="npx", args=["-y", "@openbnb/mcp-server-airbnb", "--ignore-robots-txt"]
-)
-
-server_configs_instance = AllServerConfigs(
-    configs={
-        "weather": weather_server_params,
-        "ct": ct_server_params,
-        # "bnb": bnb_server_params, # Uncomment if you want ADK to try and manage it
-                                   # and you have Node.js/npx available.
-                                   # Otherwise, ensure it runs separately and tools can connect.
-    }
-)
+    configs: Dict[str, StdioConnectionParams]
 
 # --- Configuration & Global Setup ---
 # ...
@@ -183,117 +158,89 @@ async def _collect_tools_stack(
 # --- FastAPI Application Lifespan (for loading/unloading MCP tools) ---
 @asynccontextmanager
 async def app_lifespan(app_instance: FastAPI) -> Any:
-    ### --- NEW --- ###
-    # Initialize Firebase Admin SDK at application startup.
-    # Using ApplicationDefaultCredentials() works automatically in Google Cloud environments
-    # like Cloud Workstations, Cloud Run, etc.
+    # --- Initialize Firebase Admin SDK at application startup ---
     try:
         logging.info("Initializing Firebase Admin SDK...")
-        cred = credentials.ApplicationDefault()
-        firebase_project_id = os.environ.get("FIREBASE_PROJECT_ID", "studio-l13dd")
-        firebase_admin.initialize_app(cred, {
-            'projectId': firebase_project_id,
-        })
+        # This check prevents re-initialization errors during hot-reloads
+        if not firebase_admin._apps:
+            cred = credentials.ApplicationDefault()
+            firebase_project_id = os.environ.get("FIREBASE_PROJECT_ID", "studio-l13dd")
+            firebase_admin.initialize_app(cred, {
+                'projectId': firebase_project_id,
+            })
+            logging.info(f"Firebase Admin SDK initialized successfully for project '{firebase_project_id}'.")
+        else:
+            logging.info("Firebase Admin SDK already initialized.")
 
-        logging.info("Firebase Admin SDK initialized successfully for project 'studio-l13dd'.")
-
-    # Handle the specific case where credentials are not found.
-    except google_exceptions.DefaultCredentialsError:  # type: ignore
-        logging.critical("FATAL: Could not find Application Default Credentials.")
+    except google_exceptions.DefaultCredentialsError: # type: ignore
+        logging.critical("FATAL: Could not find Google Cloud Application Default Credentials.")
         logging.critical("--> For local development, run 'gcloud auth application-default login'")
         logging.critical("--> For deployment, ensure the service account has the correct IAM roles.")
-        # In a real production scenario, you might want to exit the app here.
     except Exception as e:
         logging.critical(f"FATAL: Firebase Admin SDK failed to initialize: {e}", exc_info=True)
-        # You might want to prevent the app from starting fully if Firebase is required.
-    ### --- END NEW --- ###
 
-    # --- NEW: Get Google Maps API Key directly from environment variable ---
-    # This environment variable (GOOGLE_MAPS_API_KEY) will be set by Kubernetes.
-    # For local development, you would set it in your .env file or shell.
-    google_maps_api_key_from_env = os.environ.get("GOOGLE_MAPS_API_KEY")
-    # --- End NEW ---
+    # --- Define Base MCP Server Configurations ---
+    # **FIXED**: The `command` and `args` are nested inside `server_params`.
+    weather_server_params = StdioConnectionParams(
+        server_params={"command": "python", "args": ["./mcp_server/weather_server.py"]}
+    )
+    ct_server_params = StdioConnectionParams(
+        server_params={"command": "python", "args": ["./mcp_server/cocktail.py"]}
+    )
 
-
-    # --- Define MCP Server Configs (Moved here to use the fetched API key) ---
     current_server_configs = {
         "weather": weather_server_params,
         "ct": ct_server_params,
     }
 
+    # --- ADDED BACK: Dynamic Google Maps Server Configuration ---
+    # This logic now correctly checks for the API key and adds the Maps server if present.
+    google_maps_api_key_from_env = os.environ.get("GOOGLE_MAPS_API_KEY")
     if google_maps_api_key_from_env:
-        maps_server_params = StdioServerParameters(
-            command="npx",
-            args=["-y", "@modelcontextprotocol/server-google-maps"],
-            env={"GOOGLE_MAPS_API_KEY": google_maps_api_key_from_env} # Pass fetched key
+        logging.info("Google Maps API Key found in environment. Configuring Maps MCP server.")
+        # **FIXED**: `command`, `args`, and `env` are all nested inside `server_params`.
+        maps_server_params = StdioConnectionParams(
+            server_params={
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+                "env": {"GOOGLE_MAPS_API_KEY": google_maps_api_key_from_env}
+            }
         )
-        current_server_configs["maps"] = maps_server_params # Add maps server config
-        logging.info("Google Maps MCP server configured.")
+        current_server_configs["maps"] = maps_server_params
     else:
-        logging.warning("Google Maps API Key not available. Google Maps MCP server will not be configured.")
+        logging.warning("GOOGLE_MAPS_API_KEY environment variable not found. Google Maps MCP server will not be configured.")
+    # --- END OF ADDED BACK LOGIC ---
 
-    # Use the dynamically built server_configs_instance
-    dynamic_server_configs_instance = AllServerConfigs(configs=current_server_configs)
-    # --- End of new MCP Server Configs definition ---
-
-    app_instance.state.mcp_toolsets = [] # Store MCPToolset instances
-    app_instance.state.raw_mcp_tools_for_agent_config = {} # For agent_config.py if it still needs specific tool names
-    app_instance.state.mongo_memory_service = create_mongo_memory()
-
+    # Store toolsets on the app's state for access in endpoints
+    app_instance.state.mcp_toolsets = []
+    
     logging.info("Application Lifespan: Creating MCPToolsets.")
-    try:
-        for key, server_params in dynamic_server_configs_instance.configs.items():
-            try:
-                logging.info(f"Initializing MCPToolset for key: {key}")
-                toolset_instance = MCPToolset(
-                    connection_params=server_params
-                    # tool_filter=... if you need it
-                )
-                # To make MCPToolset discover tools, it might need an async initialization step
-                # or it discovers them on first use by the agent.
-                # The docs for "Using MCP Tools in your own Agent out of adk web" imply
-                # it happens when the agent runs.
-                # We will store the toolset instance.
-                app_instance.state.mcp_toolsets.append(toolset_instance)
-                logging.info(f"MCPToolset created for key: {key}")
+    for key, server_params in current_server_configs.items():
+        try:
+            logging.info(f"Initializing MCPToolset for key: {key}")
+            toolset_instance = MCPToolset(connection_params=server_params)
+            app_instance.state.mcp_toolsets.append(toolset_instance)
+            logging.info(f"MCPToolset instance created for key: {key}")
+        except Exception as e:
+            logging.error(f"Failed to create MCPToolset for key '{key}': {e}", exc_info=True)
+    
+    if app_instance.state.mcp_toolsets:
+        logging.info(f"Application Lifespan: {len(app_instance.state.mcp_toolsets)} MCPToolset(s) created.")
+    else:
+        logging.warning("Application Lifespan: No MCPToolsets were created. Check server configurations and paths.")
 
-                # ---- TEMPORARY: For compatibility with your current agent_config.py ----
-                # This part is a bit of a hack to see if we can still feed the names
-                # to your existing warnings in agent_config.py. Ideally, agent_config.py
-                # wouldn't need to know about individual tools if the MCPToolset handles it.
-                # This might not work as MCPToolset might not expose tools list immediately.
-                # You might need to call an internal method of toolset_instance or wait for agent use.
-                # For now, let's assume it has a way to list (this is speculative):
-                # if hasattr(toolset_instance, '_tools_discovered_on_connect'): # Replace with actual attribute/method if it exists
-                #    app_instance.state.raw_mcp_tools_for_agent_config[key] = list(toolset_instance._tools_discovered_on_connect.values())
-                # else:
-                #    logging.warning(f"Cannot immediately get tool list from MCPToolset for {key}")
-                #    app_instance.state.raw_mcp_tools_for_agent_config[key] = []
-                # ---- END TEMPORARY ----
+    # Yield control to the running FastAPI application
+    yield
 
-            except Exception as e:
-                logging.error(f"Failed to create MCPToolset for key '{key}': {e}", exc_info=True)
-        
-        if app_instance.state.mcp_toolsets:
-            logging.info(f"Application Lifespan: MCPToolsets created: {len(app_instance.state.mcp_toolsets)} toolset(s).")
-        else:
-            logging.warning("Application Lifespan: No MCPToolsets were created.")
-
-    except Exception as e:
-        logging.error(f"Application Lifespan: Error during MCPToolset creation phase: {e}", exc_info=True)
-
-    yield # Application runs here
-
+    # --- Shutdown Logic ---
     logging.info("Application Lifespan: Shutdown initiated - Closing MCPToolsets.")
     if hasattr(app_instance.state, 'mcp_toolsets'):
         for toolset in app_instance.state.mcp_toolsets:
             try:
-                logging.info(f"Closing MCPToolset: {getattr(toolset, 'name', 'Unnamed Toolset')}") # Assuming it might have a name or identifier
-                await toolset.close() # As per ADK 1.x docs
+                await toolset.close()
             except Exception as e:
                 logging.error(f"Error closing an MCPToolset: {e}", exc_info=True)
-        logging.info("Application Lifespan: MCPToolsets closed.")
-
+    logging.info("Application Lifespan: All MCPToolsets closed.")
 
 # Instantiate FastAPI app with the lifespan manager
 app = FastAPI(lifespan=app_lifespan)
@@ -353,6 +300,10 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         # Optionally, if you also want to transcribe the user's input audio:
         run_config_args["input_audio_transcription"] = {}
 
+        # Enable sound recognition
+        
+        logging.info(f"Session {session_id}: Enabling sound recognition for audio mode.")
+
         # Optionally, if you want to configure the voice (example from ADK docs):
         # from google.genai.types import VoiceConfig, PrebuiltVoiceConfig, SpeechConfig # Make sure these are imported
         # voice_config = VoiceConfig(
@@ -378,7 +329,7 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
     return live_events, live_request_queue, session
 
 # --- WebSocket Communication Logic (adapted from your streaming example) ---
-async def agent_to_client_messaging(websocket: WebSocket, live_events, session_id: str):
+async def agent_to_client_messaging(websocket: WebSocket, live_events, session_id: str, session: Any):
     """Agent to client communication for streaming"""
     logging.info(f"Agent to client messaging task started for session {session_id}.")
     try:
@@ -408,6 +359,19 @@ async def agent_to_client_messaging(websocket: WebSocket, live_events, session_i
                     logging.debug(f"[S:{session_id} AGENT TO CLIENT]: {part.inline_data.mime_type}: {len(audio_data)} bytes.")
                     continue
             
+            if hasattr(event, 'sound_event') and event.sound_event:
+                if 'sound_events' not in session.state:
+                    session.state['sound_events'] = []
+                session.state['sound_events'].append(event.sound_event.name)
+
+                message = {
+                    "mime_type": "sound_event",
+                    "data": event.sound_event.name
+                }
+                await websocket.send_text(json.dumps(message))
+                logging.debug(f"[S:{session_id} AGENT TO CLIENT]: sound_event: {event.sound_event.name}")
+                continue
+
             if part.text and (event.partial or event.turn_complete): # Send text if partial or if it's the final part of a turn
                 message = {
                     "mime_type": "text/plain",
@@ -533,14 +497,14 @@ async def websocket_endpoint(
     # --- END UPDATED CHECK ---
 
     live_events, live_request_queue, session = None, None, None # Initialize to None
-    agent_to_client_task, client_to_agent_task = None, None # Initialize to None
+    agent_to_client_task, client_to_agent_task, session = None, None, None # Initialize to None
 
     try:
         # **CRITICAL CHANGE: Use the verified 'uid' as the session ID.**
         live_events, live_request_queue, session =await start_agent_session(uid, app_state, actual_is_audio)
 
         agent_to_client_task = asyncio.create_task(
-            agent_to_client_messaging(websocket, live_events, uid)
+            agent_to_client_messaging(websocket, live_events, uid, session)
         )
         client_to_agent_task = asyncio.create_task(
             client_to_agent_messaging(websocket, live_request_queue, uid, session)
