@@ -136,6 +136,7 @@ async def create_or_update_persona(tool_context: ToolContext, name: str, goals: 
     """A tool to save or update a user's persona information. The user_id is retrieved from the session context for security."""
     invocation_context = tool_context._invocation_context
     user_id = invocation_context.session.user_id
+    print(f"Creating or updating persona for user {user_id} with name '{name}' and goals {goals}")
 
     # The persona_data dictionary can be expanded later to include more fields like 'preferences'
     # For now, we'll stick to what the agent is instructed to collect.

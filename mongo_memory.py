@@ -184,10 +184,15 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
     # --- NEW: Persona Memory Functions ---
     def get_persona(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves the persona document for a given user."""
+        if not user_id:
+            logger.warning("get_persona called with no user_id.")
+            return None
         try:
+            logger.debug(f"Retrieving persona for user_id: {user_id}")
+            print(f"Retrieving persona for user_id: {user_id}") 
             persona = self.personas.find_one({"user_id": user_id})
             if persona and "_id" in persona:
-                persona["_id"] = str(persona["_id"])
+                persona["_id"] = str(persona["_id"]) # For JSON serialization if needed
             return persona
         except Exception as e:
             logger.error(f"Error retrieving persona for user {user_id}: {e}")
@@ -208,6 +213,9 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             "last_updated": datetime.now(timezone.utc)
         }
         """
+        if not user_id:
+            logger.warning("create_or_update_persona called with no user_id.")
+            return
         try:
             # Use upsert=True to create the document if it doesn't exist, or update it if it does.
             self.personas.update_one(
@@ -215,7 +223,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                 {"$set": persona_data, "$currentDate": {"last_updated": True}},
                 upsert=True
             )
-            logger.info(f"Successfully created/updated persona for user {user_id}.")
+            logger.info(f"Successfully created/updated persona for user_id: {user_id}.")
         except Exception as e:
             logger.error(f"Error saving persona for user {user_id}: {e}")
 
@@ -248,6 +256,10 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         if self.interaction_history is None:
             logger.error("MongoDB collection not available. Cannot add interaction.")
             return
+        if not user_id:
+            logger.warning("add_interaction called with no user_id. Interaction will not be saved.")
+            return
+
         # Generate embedding for the interaction (moved outside the dict definition)
         embedding = None
         if self.embedding_model:
@@ -272,7 +284,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         }
         try:
             self.interaction_history.insert_one(interaction)
-            logger.debug(f"Added interaction to MongoDB for user {user_id}, session {session_id}")
+            logger.debug(f"Added interaction to MongoDB for user_id: {user_id}, session_id: {session_id}")
         except Exception as e:
             logger.error(f"Error adding interaction to MongoDB: {e}", exc_info=True)
 
@@ -303,6 +315,10 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         if self.interaction_history is None:
             logger.error("MongoDB collection not available. Cannot get recent interactions.")
             return []
+        if not user_id or not session_id:
+            logger.warning(f"get_recent_interactions called without user_id or session_id.")
+            return []
+
         try:
             cursor = self.interaction_history.find(
                 {"user_id": user_id, "session_id": session_id}
@@ -310,7 +326,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             
             interactions = list(cursor)
             interactions.reverse() 
-            logger.debug(f"Retrieved {len(interactions)} recent interactions for user {user_id}, session {session_id}")
+            logger.debug(f"Retrieved {len(interactions)} recent interactions for user_id: {user_id}, session_id: {session_id}")
             return interactions
         except Exception as e:
             logger.error(f"Error getting recent interactions from MongoDB: {e}", exc_info=True)
@@ -341,6 +357,10 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         if self.interaction_history is None:
             logger.warning("MongoDB collection not available. Cannot search interactions by keyword.")
             return []
+        if not user_id:
+            logger.warning("search_interactions_by_keyword called with no user_id.")
+            return []
+
         try:
             mongo_db_query: Dict[str, Any] = {"user_id": user_id, "$text": {"$search": query}}
             if session_id:
@@ -351,7 +371,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                                    .limit(limit)
             interactions = list(cursor)
             interactions.reverse()
-            logger.debug(f"Keyword search for '{query}' found {len(interactions)} interactions for user {user_id}.")
+            logger.debug(f"Keyword search for '{query}' found {len(interactions)} interactions for user_id: {user_id}.")
             return interactions
         except Exception as e:
             logger.error(f"Error searching interactions by keyword: {e}", exc_info=True)
@@ -372,13 +392,20 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
 
     async def clear_memory(self, ctx: InvocationContext, user_id: str, session_id: str) -> None:
         """Clears memory from the memory service. This method is required by BaseMemoryService."""
-        self.interaction_history.delete_many({"user_id": user_id, "session_id": session_id})
+        if not user_id or not session_id:
+            logger.warning(f"clear_memory called without user_id or session_id. No data will be cleared.")
+            return
+        try:
+            result = self.interaction_history.delete_many({"user_id": user_id, "session_id": session_id})
+            logger.info(f"Cleared {result.deleted_count} interactions for user_id: {user_id}, session_id: {session_id}")
+        except Exception as e:
+            logger.error(f"Error clearing memory for user_id: {user_id}, session_id: {session_id}: {e}", exc_info=True)
 
 
 
     async def vector_search_interactions(self, user_id: str, session_id: str, query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Performs a hybrid search (combining text and vector search) on conversation history.
+        Performs a vector search on conversation history, scoped to a specific user.
         """
         if self.interaction_history is None:
             logger.error("MongoDB collection not available. Cannot perform hybrid search.")
@@ -386,6 +413,9 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         if self.embedding_model is None:
             logger.warning("Embedding model not initialized. Cannot perform vector search. Falling back to text search.")
             return self.search_interactions_by_keyword(user_id, session_id, query_text, limit) # Fallback to text search
+        if not user_id:
+            logger.warning("vector_search_interactions called with no user_id.")
+            return []
 
         try:
             # 1. Generate embedding for the query
@@ -408,8 +438,8 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                         "path": "embedding",
                         "queryVector": query_embedding,
                         "numCandidates": limit + 50,
-                        "limit": limit + 10,
-                        "filter": {"user_id": user_id} # Pre-filter results
+                        "limit": limit,
+                        "filter": {"user_id": user_id} # CRITICAL: This isolates user data at the database level.
                     }
                 },
                 {
@@ -434,7 +464,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             ]
 
             results = list(self.interaction_history.aggregate(pipeline))
-            logger.debug(f"Vector search for '{query_text}' found {len(results)} interactions.")
+            logger.debug(f"Vector search for '{query_text}' found {len(results)} interactions for user_id: {user_id}.")
             return results
         except Exception as e:
             logger.error(f"Error performing hybrid search: {e}", exc_info=True)
