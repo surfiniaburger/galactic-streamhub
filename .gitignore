@@ -10,3 +10,5 @@ galatic-streamhub-cloudrun.yaml
 kubernetes-secrets.yaml
 kubernetes-deployment.yaml
 */kubernetes-deployment.yaml
+devpost.md
+

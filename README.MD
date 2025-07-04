@@ -55,6 +55,7 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
 *   **Knowledge Augmentation:** Can ingest new biomedical articles found via web search into its local knowledge base (MongoDB & BigQuery).
 *   **Real-time Streaming:** Bidirectional streaming of audio and text using WebSockets.
 *   **Dynamic UI:** A futuristic, dark-themed web interface with 3D animated elements and a space-themed background.
+*   **Comprehensive Accessibility Suite:** Provides workflows for visual (scene description, OCR), auditory (speech sentiment, sound recognition), and cognitive (text simplification) assistance.
 
 ## Architecture Overview
 
@@ -104,6 +105,11 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   It analyzes the user's intent and delegates to one of two specialist agents:
         *   **`AudioSentimentAgent`**: Uses the Google Cloud Natural Language API to analyze the sentiment of the user's speech.
         *   **`SoundRecognitionAgent`**: Identifies and reports significant ambient sounds from the user's environment.
+
+11. **Cognitive Accessibility Workflow:**
+    *   The `CognitiveAssistanceOrchestratorAgent` is triggered when a user asks to simplify text.
+    *   The root agent first uses the `set_text_for_simplification` tool to store the target text.
+    *   The orchestrator then delegates to the `TextSimplificationAgent`, which rephrases the stored text in simple, clear language.
 
 
 
@@ -170,6 +176,17 @@ To enhance the user's awareness and provide valuable feedback, AVA includes a su
 *   **Functionality**: The agent can listen to the user's environment and identify significant background noises (e.g., "What was that sound?", "Can you hear the doorbell?").
 *   **Underlying Technology**: The `SoundRecognitionAgent` processes the incoming audio stream to detect and classify common ambient sounds, which are stored in the session state. The agent retrieves and reports these detected sounds upon request.
 *   **User Benefit**: Enhances situational awareness by identifying important environmental cues that the user might have missed, such as a doorbell, a fire alarm, or a dog barking.
+
+
+## Cognitive Accessibility
+
+To assist users who may benefit from simplified information, AVA includes a cognitive accessibility workflow.
+
+### Text Simplification
+
+*   **Functionality**: Users can request to simplify a block of text by asking "can you make this easier to read?" or "explain this to me simply".
+*   **Underlying Technology**: The `CognitiveAssistanceOrchestratorAgent` manages this task. The root agent first captures the text to be simplified using a dedicated tool. The orchestrator then delegates to a `TextSimplificationAgent` which uses Gemini to rephrase the content in clear, easy-to-understand language, removing jargon and complex sentence structures.
+*   **User Benefit**: Makes complex information more accessible, aiding comprehension for a wider range of users.
 
 
 
@@ -255,6 +272,28 @@ cd [galactic-streamhub]
 
 3.  **Access the Web Interface:**
     Open your browser and go to `http://127.0.0.1:8000`.
+
+## Agent Evaluation
+
+This project uses the ADK's evaluation framework (`adk eval`) to test the performance and correctness of the agents against predefined conversation scenarios (eval sets). This ensures that as the agent's logic evolves, its behavior remains consistent and correct.
+
+### Running Evaluations
+
+This project contains evaluation sets for multiple agents to test specific capabilities in isolation.
+
+**To evaluate the primary `main_agent`'s conversational and tool-use abilities:**
+
+```bash
+adk eval main_agent main_agent/cocktailsEval.evalset.json
+```
+
+This command will:
+1.  Load the `root_agent` defined in the `main_agent` module.
+2.  Run the conversation turns defined in `main_agent/cocktailsEval.evalset.json`.
+3.  Compare the agent's actual tool calls and final responses against the expected "golden" responses defined in the eval set.
+4.  Generate a detailed result file in `main_agent/.adk/eval_history/`.
+
+The evaluation results help track metrics like `tool_trajectory_avg_score` (did the agent call the right tools?) and `response_match_score` (how similar was the agent's text response to the expected one?).
 
 ## Running MCP Servers
 

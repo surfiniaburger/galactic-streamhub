@@ -42,7 +42,7 @@ from firebase_admin import credentials, auth
 ### --- END NEW --- ###
 
 # Import agent configuration
-from agent_config import create_streaming_agent_with_mcp_tools
+from main_agent.agent import create_streaming_agent_with_mcp_tools
 from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT 
 # --- Configuration & Global Setup ---
 load_dotenv()
