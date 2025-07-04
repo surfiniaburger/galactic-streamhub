@@ -1,0 +1,198 @@
+{
+  "eval_set_id": "evalset6aca2c",
+  "name": "evalset6aca2c",
+  "description": null,
+  "eval_cases": [
+    {
+      "eval_id": "case2552f0",
+      "conversation": [
+        {
+          "invocation_id": "e-295e1df7-b98f-4401-ac48-de33b8ad0ba2",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "hi"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Hi there! How can I help you today?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751627578.410386
+        },
+        {
+          "invocation_id": "e-33d763a5-6787-45e2-b4fc-9a31e6fefa3b",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "is it true diogo jota passed away"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Yes, unfortunately, it is true. According to multiple news sources, Diogo Jota, the Liverpool forward, died in a car crash in Spain on Thursday, July 3, 2025. His brother, Andre Silva, was also killed in the accident.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751627600.731576
+        }
+      ],
+      "session_input": {
+        "app_name": "google_search_agent",
+        "user_id": "user",
+        "state": {}
+      },
+      "creation_timestamp": 1751627684.05334
+    },
+    {
+      "eval_id": "case58ef7f",
+      "conversation": [
+        {
+          "invocation_id": "e-a5b0648e-e63e-4e9b-a1c9-5b3beacdeeb4",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "hi"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Hi there! How can I help you today?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751629812.569822
+        },
+        {
+          "invocation_id": "e-b23c9a21-997e-4001-b603-4abf37f9571f",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "who is the president of the united states"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "The 47th and current President of the United States is Donald John Trump. He was sworn into office on January 20, 2025.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751629834.787522
+        }
+      ],
+      "session_input": {
+        "app_name": "google_search_agent",
+        "user_id": "user",
+        "state": {}
+      },
+      "creation_timestamp": 1751629851.8845508
+    }
+  ],
+  "creation_timestamp": 1751627674.473124
+}

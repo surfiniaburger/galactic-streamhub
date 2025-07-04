@@ -1,0 +1,841 @@
+{
+  "eval_set_id": "cocktailsEval",
+  "name": "cocktailsEval",
+  "description": null,
+  "eval_cases": [
+    {
+      "eval_id": "casecocktailmappersona",
+      "conversation": [
+        {
+          "invocation_id": "e-c7e2dc1d-8bc4-4f61-a279-b5c5e3fa8809",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "what is your name"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Welcome! To help me assist you better, could you tell me your name and what you're generally hoping to achieve with our conversations?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-f9395ddd-6c58-40cf-8282-9b3b85f5a624",
+                "args": {
+                  "request": "Hi, new user! What is your name and what are your goals for using this assistant? Also, the user asked what my name is."
+                },
+                "name": "PersonaManagementAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633375.204836
+        },
+        {
+          "invocation_id": "e-e9f3b577-1d29-4d4b-9e1a-dd13589e7f88",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "remember my name"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Hello Tola! I remember your name is Tola. You also mentioned you wanted to learn about cocktails.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-759a1904-981d-4dbc-b79e-1e98962a23a3",
+                "args": {
+                  "request": "Remember my name"
+                },
+                "name": "DeepMemoryRecallAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633444.444642
+        },
+        {
+          "invocation_id": "e-36e059e9-9f51-43fc-8d29-a49b732b89de",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "yeah! can you list random cocktails that need ginger"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Here are a few cocktails that you can make with ginger:\n\n*   **Dark 'n' Stormy:** This highball combines dark rum, ginger beer, and fresh lime.\n*   **Penicillin:** Combines blended scotch, lemon juice, and honey-ginger syrup, and is topped with a float of Islay single malt scotch.\n*   **Ginger Rogers:** Made with gin, ginger ale, lime juice, and optionally a dash of bitters.\n*   **El Diablo:** An iconic cocktail in the tequila canon, made with ginger beer, tequila, crème de cassis, and lime.\n*   **Ginger Cosmo:** Made with vodka, ginger liqueur, ginger syrup, cranberry juice, lime juice, and ginger bitters.\n*   **Ginger Julep:** A twist on the traditional Mint Julep, this cocktail incorporates ginger syrup or muddled ginger for a spicy kick.\n*   **Ginger Apple Cider:** Combines the flavors of fall with ginger syrup.\n*   **Ginger & Bourbon Cocktail:** Fresh ginger is infused to first create a ginger tea. Bourbon, honey, and a dash of bitters complete this peppery sweet drink, topped with a zest of lemon peel.\n\nThere are many ways to incorporate ginger flavor into cocktails, including using fresh ginger, ginger syrup, ginger liqueur, or ginger beer.\nThis information was gathered from a general web search. Specific source URLs were not provided for this summary.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-4024a946-8d34-44b8-87f7-3d7f48bfc89b",
+                "args": {
+                  "request": "List random cocktails that need ginger"
+                },
+                "name": "SpecialSearchAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633513.768887
+        },
+        {
+          "invocation_id": "e-8a12cc13-defd-46b2-98cb-3e0cba3f4168",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "can we make el diablo"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "My apologies, Tola! It seems my information was incorrect. I couldn't find a cocktail named \"El Diablo\" in my cocktail database.\n\nWould you like me to search for the ingredients of the El Diablo cocktail I mentioned earlier? That way, we can confirm the ingredients and instructions.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-2cbf83c5-80b2-40b9-83ef-9441ff3fa61a",
+                "args": {
+                  "name": "El Diablo"
+                },
+                "name": "search_cocktail_by_name"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633579.193874
+        },
+        {
+          "invocation_id": "e-afb20195-2f57-4df0-9fe8-10a7557ed252",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "so i have ginger but not sure i have other ingredients for el diablo, so yes help me confirm the ingredients and also help me in procuring what i am missing"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Hello Tola!\n\nThe El Diablo cocktail typically includes:\n\n*   1 1/2 oz Tequila (preferably reposado)\n*   1/2 oz Crème de cassis (a blackcurrant liqueur)\n*   1/2 - 3/4 oz Fresh lime juice\n*   3-4 oz Ginger beer or Ginger Ale\n*   Lime wedge, for garnish\n\nThis information was gathered from a general web search. Specific source URLs were not provided for this summary.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-56e4b48b-9aa0-4da9-824f-1b9d362f38d5",
+                "args": {
+                  "request": "Ingredients for El Diablo cocktail"
+                },
+                "name": "SpecialSearchAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633782.769266
+        },
+        {
+          "invocation_id": "e-3818e002-0b6f-46fe-9822-c871d92bb67d",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "okay! so what am i missing"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay, Tola! To determine what you're missing, could you tell me what ingredients you currently have on hand?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633879.898097
+        },
+        {
+          "invocation_id": "e-b727155e-48f3-4e84-a7aa-adf4acfda5f6",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "i have ginger ale"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay, Tola! So, to make an El Diablo cocktail, you'd still need:\n\n*   Tequila (preferably reposado)\n*   Crème de cassis (a blackcurrant liqueur)\n*   Fresh lime juice\n*   Lime wedge, for garnish\n\nWould you like me to help you find where you can purchase any of these missing ingredients?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633909.341325
+        },
+        {
+          "invocation_id": "e-4ef03bcd-bf05-4836-90c9-4b25d59c3824",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "yes"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Could you please share your current location or an address? This will allow me to search for nearby stores where you can purchase the missing ingredients.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751633923.528091
+        },
+        {
+          "invocation_id": "e-6f11ce5c-4825-4a05-abe6-ca7e06d3f813",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "13c moshalashi okoya Ajeronmi Ifelodun Boundary, Lagos State Nigeria"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay, Tola! I have the coordinates for your location.\n\nWould you like me to search for nearby stores that sell the following ingredients:\n\n*   Tequila (preferably reposado)\n*   Crème de cassis (a blackcurrant liqueur)\n*   Fresh limes\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-e2d6d532-3cb5-466d-b905-44512da32199",
+                "args": {
+                  "address": "13c moshalashi okoya Ajeronmi Ifelodun Boundary, Lagos State Nigeria"
+                },
+                "name": "maps_geocode"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751634047.727585
+        },
+        {
+          "invocation_id": "e-2c35245b-19f3-4a90-89c0-6e557137f5fb",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "yes"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay, Tola! Here are some stores near you that might have what you need:\n\n**Liquor Stores:**\n\n*   **Breezy Wine & Liquor:** 4, 180b Akerele St, across from extension, Surulere, Lagos. (About 4.5 km away)\n*   **Bottleshop.ng:** 40 Doherty St, Oke Arin St, Lagos Island, Lagos. (About 4.6 km away)\n*   **Oliquors:** 17 Rosanwo Street, Surulere, Lagos. (About 4.5 km away)\n*   **Wine House Nigeria:** 3 Yesufu Sanusi St, Surulere, Lagos. (About 4.4 km away)\n\n**Grocery Stores/Supermarkets (for limes):**\n\n*   **Chimax Supermarkets:** Boundary, 101 Oba Abdulfatai Aremu Aromire St, Ajeromi-Ifelodun, Lagos. (Very close to you)\n*   **Bokku! Mart Alaba Oro Rd, Ajegunle:** 6 Alaba Oro Rd, Amukoko, Ikeja. (About 1.8 km away)\n\nI recommend calling these stores ahead of time to check if they have the specific items you need (reposado tequila and crème de cassis) to save yourself a trip if they don't carry them.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-28976014-eaa8-4de4-aab9-65d6e2ca8597",
+                "args": {
+                  "query": "liquor store",
+                  "location": {
+                    "longitude": 3.3431015,
+                    "latitude": 6.4609322
+                  },
+                  "radius": 5000
+                },
+                "name": "maps_search_places"
+              },
+              {
+                "id": "adk-aca3baf1-852d-478d-8035-48e05794b2c1",
+                "args": {
+                  "radius": 5000,
+                  "location": {
+                    "latitude": 6.4609322,
+                    "longitude": 3.3431015
+                  },
+                  "query": "fresh limes"
+                },
+                "name": "maps_search_places"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751634071.831156
+        },
+        {
+          "invocation_id": "e-4f9ddb82-86f0-4e68-a4b4-bd392469378e",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "can you get their phone numbers"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay, Tola! I've tried to find phone numbers for the stores, but unfortunately, not all of them have their phone numbers readily available in Google Maps. Here's what I could find:\n\n*   **Breezy Wine & Liquor:** I couldn't find a phone number.\n*   **Bottleshop.ng:** I couldn't find a direct phone number, but they have multiple locations.\n*   **Oliquors:** I couldn't find a phone number.\n*   **Wine House Nigeria:** I couldn't find a phone number.\n*   **Chimax Supermarkets:** I couldn't find a phone number.\n*   **Bokku! Mart Alaba Oro Rd, Ajegunle:** I couldn't find a phone number.\n\nFor the stores where I couldn't find a phone number, your best bet might be to search for them online or check if they have a social media presence where you can inquire.\n\nWould you like me to help you with anything else?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-a8a77123-87d4-4843-9e92-a05526647742",
+                "args": {
+                  "query": "Breezy Wine & Liquor phone number",
+                  "radius": 5000,
+                  "location": {
+                    "latitude": 6.4609322,
+                    "longitude": 3.3431015
+                  }
+                },
+                "name": "maps_search_places"
+              },
+              {
+                "id": "adk-41648314-bcc1-4b77-9f1e-71588c008093",
+                "args": {
+                  "query": "Bottleshop.ng phone number",
+                  "location": {
+                    "longitude": 3.3431015,
+                    "latitude": 6.4609322
+                  },
+                  "radius": 5000
+                },
+                "name": "maps_search_places"
+              },
+              {
+                "id": "adk-b3928586-8536-4a6f-a512-32c02fde33ee",
+                "args": {
+                  "radius": 5000,
+                  "query": "Oliquors phone number",
+                  "location": {
+                    "longitude": 3.3431015,
+                    "latitude": 6.4609322
+                  }
+                },
+                "name": "maps_search_places"
+              },
+              {
+                "id": "adk-3cac27ab-db1a-44ae-b69f-e25b7a288736",
+                "args": {
+                  "radius": 5000,
+                  "query": "Wine House Nigeria phone number",
+                  "location": {
+                    "longitude": 3.3431015,
+                    "latitude": 6.4609322
+                  }
+                },
+                "name": "maps_search_places"
+              },
+              {
+                "id": "adk-0c521ea1-e792-44a2-b8c9-77924d4f1a17",
+                "args": {
+                  "location": {
+                    "longitude": 3.3431015,
+                    "latitude": 6.4609322
+                  },
+                  "query": "Chimax Supermarkets phone number",
+                  "radius": 5000
+                },
+                "name": "maps_search_places"
+              },
+              {
+                "id": "adk-a9eb6854-4877-4985-8e3a-3ac8e89db5b1",
+                "args": {
+                  "query": "Bokku! Mart Alaba Oro Rd phone number",
+                  "location": {
+                    "latitude": 6.4609322,
+                    "longitude": 3.3431015
+                  },
+                  "radius": 5000
+                },
+                "name": "maps_search_places"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751634124.553846
+        }
+      ],
+      "session_input": {
+        "app_name": "main_agent",
+        "user_id": "user",
+        "state": {}
+      },
+      "creation_timestamp": 1751634226.9017441
+    },
+    {
+      "eval_id": "casedba0f8",
+      "conversation": [
+        {
+          "invocation_id": "e-129caa5d-f558-4082-85cb-053756bc2f63",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "hello!"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay, I'm ready to help you. What are you hoping to achieve today?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-d5e30fde-8162-4646-a460-1b450ff36e78",
+                "args": {
+                  "request": "hello!"
+                },
+                "name": "PersonaManagementAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751634902.307605
+        },
+        {
+          "invocation_id": "e-d588427c-1400-4b61-9203-bea37cfc0b09",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "you could atleast remember my name"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "You're right, I apologize for that! It seems I'm having a bit of trouble accessing your stored information at the moment. I'll make sure to address this issue.\n\nIn the meantime, could you please remind me of your name? I'll do my best to remember it for our conversation today. And please let me know what you'd like me to help you with!\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751635000.864968
+        }
+      ],
+      "session_input": {
+        "app_name": "main_agent",
+        "user_id": "user",
+        "state": {}
+      },
+      "creation_timestamp": 1751635205.2103128
+    },
+    {
+      "eval_id": "casememory",
+      "conversation": [
+        {
+          "invocation_id": "e-1028bcb5-7eb9-41cc-b1d0-d88d2b2e2c6b",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Hello! AVA!"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Okay! It's nice to meet you! What is your name, and what are you hoping to accomplish today?\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-e7fcb0d6-95ca-4e4d-93d1-9eeff7da085d",
+                "args": {
+                  "request": "Hello! AVA!"
+                },
+                "name": "PersonaManagementAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751637521.94636
+        },
+        {
+          "invocation_id": "e-b4295e77-0e86-4c55-a8a7-0b740ef5f835",
+          "user_content": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "remember from our past discussions"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "video_metadata": null,
+                "thought": null,
+                "inline_data": null,
+                "file_data": null,
+                "thought_signature": null,
+                "code_execution_result": null,
+                "executable_code": null,
+                "function_call": null,
+                "function_response": null,
+                "text": "Welcome back, Tola! I'm ready to help. What specifically would you like me to remember from our past discussions? Please provide more details about what you're looking for.\n"
+              }
+            ],
+            "role": null
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "id": "adk-a53ab422-23ce-4048-a221-334fee18608f",
+                "args": {
+                  "request": "remember from our past discussions"
+                },
+                "name": "DeepMemoryRecallAgent"
+              }
+            ],
+            "intermediate_responses": []
+          },
+          "creation_timestamp": 1751637560.270234
+        }
+      ],
+      "session_input": {
+        "app_name": "main_agent",
+        "user_id": "user",
+        "state": {}
+      },
+      "creation_timestamp": 1751637602.605331
+    }
+  ],
+  "creation_timestamp": 1751634181.8018088
+}
