@@ -8,15 +8,22 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
 #from tools.web_utils import fetch_web_article_text_tool 
 # Import your callback functions and mongo_memory_service instance
+from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent
+from google.adk.events import Event, EventActions
+from google.adk.planners import BuiltInPlanner
+from typing import Any, Dict, List, Optional, Literal, AsyncGenerator
 from mongo_memory import mongo_memory_service, MongoMemory # If in mongo_memory.py
 from callbacks import (
     check_for_prompt_injection_callback,  # Import the new callback
     load_memory_before_model_callback,
     save_interaction_after_model_callback,
 )
+from google.adk.agents.callback_context import CallbackContext
 from google.cloud import vision
-
+from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
 from google.adk.agents.invocation_context import InvocationContext # NEW IMPORT
+from pydantic import BaseModel, Field
+from google.genai import types as genai_types
 # Import new proactive agents and their instructions
 from proactive_agents import (
     ProactiveContextOrchestratorAgent,
@@ -89,7 +96,8 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
     *   If the user's query is clearly involves clinical trials (e.g., "find papers on...", "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
 
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
-7.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `SpecialSearchAgent`.  
+7.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the ``ResearchRouterAgent`.  
+    *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `ResearchRouterAgent`'s sub-agents (`SimpleSearchAgent` or `DeepResearchAgent`) return a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
 
 8.  **Handling Ingestion Confirmation for Deep Dive Results:**
     *   If your last response to the user (likely from the `MasterResearchSynthesizer` via the `DeepDiveReportAgent`) included a question about ingesting additional findings (e.g., "Would you like to attempt to ingest them into our database?"), and the user's current response is affirmative (e.g., "yes", "please ingest them", "proceed with ingestion"):
@@ -118,6 +126,98 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
 """
+
+# --- Structured Output Models for General Research ---
+class SearchQuery(BaseModel):
+    """Model representing a specific search query for web search."""
+    search_query: str = Field(description="A highly specific and targeted query for web search.")
+
+class Feedback(BaseModel):
+    """Model for providing evaluation feedback on research quality."""
+    grade: Literal["pass", "fail"] = Field(description="Evaluation result. 'pass' if the research is sufficient, 'fail' if it needs revision.")
+    comment: str = Field(description="Detailed explanation of the evaluation, highlighting strengths and/or weaknesses of the research.")
+    follow_up_queries: Optional[List[SearchQuery]] = Field(
+        default=None,
+        description="A list of specific, targeted follow-up search queries needed to fix research gaps. This should be null or empty if the grade is 'pass'.",
+    )
+
+# --- Custom Agent for Loop Control in General Research ---
+class EscalationChecker(BaseAgent):
+    """Checks research evaluation and escalates to stop the loop if grade is 'pass'."""
+    def __init__(self, name: str):
+        super().__init__(name=name)
+
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        evaluation_result = ctx.session.state.get("research_evaluation")
+        if evaluation_result and evaluation_result.get("grade") == "pass":
+            logging.info(f"[{self.name}] Research evaluation passed. Escalating to stop loop.")
+            yield Event(author=self.name, actions=EventActions(escalate=True))
+        else:
+            logging.info(f"[{self.name}] Research evaluation failed or not found. Loop will continue.")
+            yield Event(author=self.name)
+
+# --- Callback for General Research ---
+def collect_research_sources_callback(callback_context: CallbackContext) -> None:
+    """Collects and organizes web-based research sources from agent events."""
+    session = callback_context._invocation_context.session
+    url_to_short_id = callback_context.state.get("url_to_short_id", {})
+    sources = callback_context.state.get("sources", {})
+    id_counter = len(url_to_short_id) + 1
+    for event in session.events:
+        if not (event.grounding_metadata and event.grounding_metadata.grounding_chunks):
+            continue
+        for chunk in event.grounding_metadata.grounding_chunks:
+            if not chunk.web:
+                continue
+            url = chunk.web.uri
+            title = chunk.web.title if chunk.web.title != chunk.web.domain else chunk.web.domain
+            if url not in url_to_short_id:
+                short_id = f"src-{id_counter}"
+                url_to_short_id[url] = short_id
+                sources[short_id] = {"short_id": short_id, "title": title, "url": url, "domain": chunk.web.domain}
+                id_counter += 1
+
+    callback_context.state["url_to_short_id"] = url_to_short_id
+    callback_context.state["sources"] = sources
+
+# --- NEW: Instructions for the Two-Tiered General Research System ---
+
+SIMPLE_SEARCH_AGENT_INSTRUCTION = """
+You are a fast and efficient search agent. Your goal is to provide a quick, sourced answer to a user's question.
+
+**Workflow:**
+1.  **Search**: Use the `google_search_agent` tool with the user's query.
+2.  **Visualize (If Needed)**: If the user's query explicitly asks for a chart or visualization (e.g., "show me a chart of..."), use the `VisualizationAgent` tool.
+3.  **Synthesize and Source**: Combine the information from the tools into a clear, concise answer.
+    *   If the `google_search_agent` provides a summary and a list of source URLs, present the summary and then list each source URL under a "Sources:" heading.
+    *   If the `google_search_agent` provides only a text summary, present it and append the note: "This information was gathered from a general web search."
+    *   If a chart was created, include the image URL in your response.
+
+Your final response must be a direct answer to the user's question, properly sourced.
+"""
+
+DEEP_RESEARCH_AGENT_INSTRUCTION = """
+You are a comprehensive research assistant. Your job is to execute a multi-step research plan to provide a detailed and well-structured report.
+
+**Workflow:**
+1.  **Plan**: Use the `plan_generator` tool to create a research plan based on the user's query.
+2.  **Research**: Execute the `[RESEARCH]` tasks in the plan using the `section_researcher` tool. This agent will perform searches and synthesize findings for each research task.
+3.  **Evaluate & Refine**: The `research_evaluator` will review the findings. If they are incomplete, the `enhanced_search_executor` will perform follow-up searches. This loop continues until the research is satisfactory.
+4.  **Visualize**: The `ChartProducerAgent` will scan the research findings for any quantifiable data and create charts using the `VisualizationAgent`.
+5.  **Compose**: The `report_composer` will write a final, detailed report based on all the gathered and refined information.
+6.  **Aggregate**: The `FinalReportAggregatorAgent` will combine the written report and any generated chart URLs into a single, final output.
+
+Your final output is the complete, aggregated report from the pipeline.
+"""
+
+RESEARCH_ROUTER_INSTRUCTION = """
+You are a highly efficient research dispatcher. Your only job is to analyze the user's research query and delegate it to the correct specialist agent. You must not answer the user directly.
+- **IF** the user's query is simple, direct, or seems to ask for a quick fact (e.g., "what is the capital of France?", "who won the world cup in 2022?"), you **MUST** call the `SimpleSearchAgent`.
+- **IF** the user's query asks for a "deep dive", "comprehensive report", "in-depth analysis", or is a complex, open-ended question (e.g., "explain the causes of the roman empire's fall", "provide a detailed report on the impact of AI on healthcare"), you **MUST** call the `DeepResearchAgent`.
+You must call one and only one of these two specialist agents based on your judgment of the user's intent.
+"""
+
+
 
 # --- Instruction for the new Persona Management Agent ---
 PERSONA_MANAGER_INSTRUCTION = """
@@ -305,6 +405,26 @@ Chart: Efficacy of huCART19-IL18 Therapy
 [/static/charts/chart_abc123.png]
 """
 
+CHART_PRODUCER2_INSTRUCTION = """
+You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts in the available text and call the appropriate tools to generate them.
+Your Available Information (from session state):
+All raw text from `research_findings`.
+
+
+Your Mandatory Workflow:
+1. Scan for All Visuals: Read through all the available text in `research_findings`.
+2. Generate Charts: For every piece of quantifiable data you find (e.g., percentages, funding numbers), you MUST:
+    *  Format the data into the required JSON structure.
+    *  Call the `VisualizationAgent` tool with the JSON to generate a chart.
+
+Consolidate Output: Your final output should be a well-formatted "Data Insights" that presents the URLs for every chart and image you generated, each with a clear title.
+
+Example Output:
+Data Insights
+Chart: Efficacy of huCART19-IL18 Therapy
+[/static/charts/chart_abc123.png]
+"""
+
 
 IMAGE_EVIDENCE_PRODUCER_INSTRUCTION = """
 You are a visual evidence specialist. Your only job is to scan all available text in the session state for key physical or visual descriptions (e.g., "ground-glass opacity," "spiculated nodule," "cellular inflammation").
@@ -407,6 +527,19 @@ You will have the following information available in the session state:
 - `deep_dive_report`: A report detailing additional findings from deeper exploration and potentially an ingestion query.
 
 Your final output **MUST** be the `text_report`, followed by the `chart_report`, followed by the `image_report`, and finally followed by the `deep_dive_report`.
+If any report component is missing, empty, or None, simply omit it from the final document but maintain the order of the others.
+Do not add, edit, or summarize anything. Just stack the available report components.
+"""
+
+# The instruction for the aggregator agent
+FINAL_AGGREGATOR2_INSTRUCTION = """
+You are a simple report compiler. Your only job is to combine up to four report components into one final document.
+You will have the following information available in the session state:
+- `text_report`: The detailed written summary from initial research.
+- `chart_report`: A report containing URLs for data charts.
+
+
+Your final output **MUST** be the `text_report`, followed by the `chart_report`.
 If any report component is missing, empty, or None, simply omit it from the final document but maintain the order of the others.
 Do not add, edit, or summarize anything. Just stack the available report components.
 """
@@ -842,20 +975,78 @@ def create_streaming_agent_with_mcp_tools(
     if hasattr(visualization_agent_tool, 'run_async') and callable(getattr(visualization_agent_tool, 'run_async')):
        visualization_agent_tool.func = visualization_agent_tool.run_async # type: ignore
 
-    # --- Create the Special Search Agent ---
-    special_search_agent = LlmAgent(
+    chart_producer_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
-        name="SpecialSearchAgent",
-        instruction=SPECIAL_SEARCH_AGENT_INSTRUCTION,
-        description="A special search agent that can perform in-depth research and create visualizations.",
-        tools=[google_search_agent_tool, visualization_agent_tool],
+        name="ChartProducerAgent",
+        instruction=CHART_PRODUCER_INSTRUCTION,
+        tools=[visualization_agent_tool], # Its only tool is the viz agent
+        output_key="chart_report",
+        **shared_callbacks 
+    )
+
+    chart_producer2_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ChartProducerAgent",
+        instruction=CHART_PRODUCER2_INSTRUCTION,
+        tools=[visualization_agent_tool], # Its only tool is the viz agent
+        output_key="chart_report",
+        **shared_callbacks 
+    )
+
+    # --- Create the Special Search Agent ---
+    # --- General Research Synthesizer Agent and its components ---
+    # This replaces the simple SpecialSearchAgent with a more robust, iterative pipeline.
+
+    plan_generator = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="PlanGenerator",
+        instruction="You are a research strategist. Your job is to create a high-level, 5-point research plan based on the user's query. Classify each point as [RESEARCH] for information gathering or [DELIVERABLE] for synthesis tasks.",
+        tools=[google_search_agent_tool],
+        output_key="research_plan",
         **shared_callbacks
     )
-    special_search_agent_tool = AgentTool(agent=special_search_agent)
-    if hasattr(special_search_agent_tool, 'run_async'):
-        special_search_agent_tool.func = special_search_agent_tool.run_async
-    all_root_agent_tools.append(special_search_agent_tool)
-    logging.info("SpecialSearchAgent wrapped as a tool and added to Root Agent's tools.")
+    section_researcher = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="SectionResearcher",
+        instruction="You are a diligent researcher. Execute the [RESEARCH] tasks from the 'research_plan' state key. For each task, formulate 3-5 targeted search queries, execute them using the `google_search_agent` tool, and synthesize the results into a detailed summary. Store all summaries for the next phase.",
+        tools=[google_search_agent_tool],
+        output_key="research_findings",
+        after_agent_callback=collect_research_sources_callback,
+        **shared_callbacks
+    )
+
+    research_evaluator = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID, # Could use a more powerful model like 1.5 Pro
+        name="ResearchEvaluator",
+        instruction="You are a quality assurance analyst. Evaluate the research in 'research_findings'. If it's comprehensive, grade 'pass'. If there are gaps, grade 'fail' and provide specific follow-up queries. Your response must be a single, raw JSON object validating against the 'Feedback' schema.",
+        output_schema=Feedback,
+        output_key="research_evaluation",
+        disallow_transfer_to_parent=True, # Important for agents with output_schema
+        disallow_transfer_to_peers=True,
+        **shared_callbacks
+    )
+
+    enhanced_search_executor = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="EnhancedSearchExecutor",
+        instruction="You are a specialist researcher. Execute EVERY query from 'research_evaluation.follow_up_queries' using the `google_search_agent` tool. Synthesize the new findings and COMBINE them with the existing information in 'research_findings'. Your output is the new, complete set of research findings.",
+        tools=[google_search_agent_tool],
+        output_key="research_findings",
+        after_agent_callback=collect_research_sources_callback,
+        **shared_callbacks
+    )
+
+    report_composer = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ReportComposer",
+        instruction="You are a report writer. Using the final 'research_findings' from the session state, write a comprehensive, well-structured report under 300 lines. Do not create charts or images.",
+        output_key="text_report",
+        **shared_callbacks
+    )
+
+    # --- Assemble the Tier 1 and Tier 2 Research Agents ---
+
+
 
     trend_data_fetcher_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
@@ -904,14 +1095,7 @@ def create_streaming_agent_with_mcp_tools(
     )
 
     # Agent B: The Chart Producer (NEW)
-    chart_producer_agent = LlmAgent(
-        model=GEMINI_PRO_MODEL_ID,
-        name="ChartProducerAgent",
-        instruction=CHART_PRODUCER_INSTRUCTION,
-        tools=[visualization_agent_tool], # Its only tool is the viz agent
-        output_key="chart_report",
-        **shared_callbacks 
-    )
+
 
     # Agent C: The Image Detective (NEW)
     image_evidence_producer_agent = LlmAgent(
@@ -973,6 +1157,19 @@ def create_streaming_agent_with_mcp_tools(
     all_root_agent_tools.append(deep_memory_recall_tool)
     logging.info(f"DeepMemoryRecallAgent wrapped as AgentTool and added to Root Agent's tools.")
 
+    # Tier 1: Simple Search Agent
+    simple_search_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="SimpleSearchAgent",
+        instruction=SIMPLE_SEARCH_AGENT_INSTRUCTION,
+        description="Provides a quick, sourced answer to a straightforward question.",
+        tools=[google_search_agent_tool, visualization_agent_tool],
+        **shared_callbacks
+    )
+    simple_search_agent_tool = AgentTool(agent=simple_search_agent)
+    if hasattr(simple_search_agent_tool, 'run_async'):
+        simple_search_agent_tool.func = simple_search_agent_tool.run_async
+
 
     # NEW: The Parallel Synthesizer
     parallel_synthesis_agent = ParallelAgent(
@@ -994,7 +1191,59 @@ def create_streaming_agent_with_mcp_tools(
         **shared_callbacks 
         # No tools needed, it just processes text from session state
     )
+
+    final_report_aggregator2_agent = LlmAgent(
+        name="FinalReportAggregatorAgent",
+        model=GEMINI_PRO_MODEL_ID,
+        instruction=FINAL_AGGREGATOR2_INSTRUCTION,
+        **shared_callbacks 
+        # No tools needed, it just processes text from session state
+    )
+
+    # Tier 2: Deep Research Agent (Pipeline)
+    deep_research_agent = SequentialAgent(
+        name="DeepResearchAgent",
+        description="Executes a multi-step research plan for in-depth analysis.",
+        sub_agents=[
+            plan_generator,
+            section_researcher,
+            LoopAgent(
+                name="IterativeRefinementLoop",
+                max_iterations=2, # Limit iterations to prevent runaways
+                sub_agents=[
+                    research_evaluator,
+                    EscalationChecker(name="escalation_checker"),
+                    enhanced_search_executor,
+                ],
+            ),
+            ParallelAgent(
+                name="FinalReportGeneration",
+                sub_agents=[report_composer, chart_producer2_agent]
+            ),
+            final_report_aggregator2_agent # This is defined later, but we use it here.
+        ]
+    )
+
+    deep_research_agent_tool = AgentTool(agent=deep_research_agent)
+    if hasattr(deep_research_agent_tool, 'run_async'):
+        deep_research_agent_tool.func = deep_research_agent_tool.run_async
+
+    # The Router that decides between Tier 1 and Tier 2
+    research_router_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ResearchRouterAgent",
+        instruction=RESEARCH_ROUTER_INSTRUCTION,
+        description="A dispatcher that chooses between a simple search or a deep research pipeline based on the user's query.",
+        tools=[simple_search_agent_tool, deep_research_agent_tool],
+        **shared_callbacks
+    )
+    research_router_agent_tool = AgentTool(agent=research_router_agent)
+    if hasattr(research_router_agent_tool, 'run_async'):
+        research_router_agent_tool.func = research_router_agent_tool.run_async
+    all_root_agent_tools.append(research_router_agent_tool)
+    logging.info("ResearchRouterAgent created and added to Root Agent's tools.")
     
+        
 
     # NEW: Define the Master Research Synthesizer as a Sequential Agent
     master_research_synthesizer = SequentialAgent(
@@ -1024,7 +1273,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction=INTENT_ROUTER_INSTRUCTION,
         description="The master research dispatcher. Analyzes user queries and routes them to the correct specialist workflow.",
         tools=[
-            special_search_agent_tool,
+            research_router_agent_tool, # Use the new router for general queries
             master_research_synthesizer_tool 
         ]
     )
