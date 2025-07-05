@@ -161,22 +161,17 @@ Galactic StreamHub now implements robust user authentication using Firebase, ens
 *   **User Identification**: The backend can reliably identify users based on their Firebase UID, allowing for potential future features like personalized experiences or data storage.
 *   **Standardized Authentication**: Leverages Google's robust and secure Firebase Authentication platform.
 
-## Auditory Accessibility
+## Visual Accessibility 👓
 
-To enhance the user's awareness and provide valuable feedback, AVA includes a suite of auditory accessibility tools. These are managed by the `AuditoryAssistanceOrchestratorAgent`, which routes user requests to the appropriate specialist.
+To better serve visually impaired users, AVA includes a dedicated accessibility workflow. It can:
+*   **Describe the Scene**: Provide a natural, narrative description of the user's surroundings based on what the camera sees.
+*   **Read Text Aloud**: Accurately read text from objects in the real world (like labels or documents) using **Google's Cloud Vision API** for high-precision Optical Character Recognition (OCR).
 
-### Speech Sentiment Analysis
+## Auditory Accessibility 👂
 
-*   **Functionality**: Users can ask about their tone or how they sound (e.g., "Do I sound angry?", "How am I coming across?").
-*   **Underlying Technology**: The `AudioSentimentAgent` takes the user's most recent speech, transcribes it to text, and uses the **Google Cloud Natural Language API** to perform detailed sentiment analysis.
-*   **User Benefit**: Provides users with real-time feedback on their vocal tone, helping them understand how they may be perceived by others. The agent returns a clear description of the detected sentiment (positive, negative, or neutral) along with a confidence score.
-
-### Ambient Sound Recognition
-
-*   **Functionality**: The agent can listen to the user's environment and identify significant background noises (e.g., "What was that sound?", "Can you hear the doorbell?").
-*   **Underlying Technology**: The `SoundRecognitionAgent` processes the incoming audio stream to detect and classify common ambient sounds, which are stored in the session state. The agent retrieves and reports these detected sounds upon request.
-*   **User Benefit**: Enhances situational awareness by identifying important environmental cues that the user might have missed, such as a doorbell, a fire alarm, or a dog barking.
-
+To enhance auditory awareness and provide valuable feedback, AVA includes a dedicated auditory accessibility workflow. It can:
+*   **Analyze Speech Sentiment**: Provide real-time feedback on vocal tone by analyzing transcribed speech with the **Google Cloud Natural Language API**.
+*   **Recognize Ambient Sounds**: Identify and report significant background noises (like a doorbell or alarm) to improve the user's situational awareness.
 
 ## Cognitive Accessibility
 
