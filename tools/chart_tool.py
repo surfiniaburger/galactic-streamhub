@@ -239,7 +239,9 @@ def generate_grouped_bar_chart(
         for group in main_groups:
             item = next(d for d in data if d.get(group_field) == group)
             for sub in sub_categories:
-                values_by_subcategory[sub].append(item.get(sub, 0)) # Default to 0 if sub-category is missing for a group
+                # Get value, default to 0 if key is missing or value is None
+                value = item.get(sub)
+                values_by_subcategory[sub].append(value if value is not None else 0)
 
         x = np.arange(len(main_groups))  # The label locations
         width = 0.8 / len(sub_categories)  # The width of the bars, adjusted for number of sub-categories
