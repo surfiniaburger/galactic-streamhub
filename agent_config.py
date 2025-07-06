@@ -6,6 +6,7 @@ import logging
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
+import re
 #from tools.web_utils import fetch_web_article_text_tool 
 # Import your callback functions and mongo_memory_service instance
 from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent
@@ -49,7 +50,7 @@ from ingest_clinical_trials import query_clinical_trials_from_mongodb, ingest_cl
 from ingest_multimodal_data import find_similar_images
 
 MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
-GEMINI_PRO_MODEL_ID = "gemini-2.0-flash"
+GEMINI_PRO_MODEL_ID = "gemini-2.5-flash"
 GEMINI_MULTIMODAL_MODEL_ID = MODEL_ID_STREAMING # Alias for clarity
 
 
@@ -93,11 +94,11 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
         *   If no proactive suggestion, the tool will handle the task reactively, and its direct output (your final response) will be the answer.
 5.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous.
 6.  **Delegation to `MasterResearchSynthesizer`**:
-    *   If the user's query is clearly involves clinical trials (e.g., "find papers on...", "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
+    *   If the user's query is clearly involves clinical trials (e.g., "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
 
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
-7.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the ``ResearchRouterAgent`.  
-    *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `ResearchRouterAgent`'s sub-agents (`SimpleSearchAgent` or `DeepResearchAgent`) return a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
+7.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...",  "find papers on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `DeepResearchAgent`.  
+    *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `DeepResearchAgent` tool return a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
 
 8.  **Handling Ingestion Confirmation for Deep Dive Results:**
     *   If your last response to the user (likely from the `MasterResearchSynthesizer` via the `DeepDiveReportAgent`) included a question about ingesting additional findings (e.g., "Would you like to attempt to ingest them into our database?"), and the user's current response is affirmative (e.g., "yes", "please ingest them", "proceed with ingestion"):
@@ -158,7 +159,17 @@ class EscalationChecker(BaseAgent):
 
 # --- Callback for General Research ---
 def collect_research_sources_callback(callback_context: CallbackContext) -> None:
-    """Collects and organizes web-based research sources from agent events."""
+    """Collects and organizes web-based research sources and their supported claims from agent events.
+
+    This function processes the agent's `session.events` to extract web source details (URLs,
+    titles, domains from `grounding_chunks`) and associated text segments with confidence scores
+    (from `grounding_supports`). The aggregated source information and a mapping of URLs to short
+    IDs are cumulatively stored in `callback_context.state`.
+
+    Args:
+        callback_context (CallbackContext): The context object providing access to the agent's
+            session events and persistent state.
+    """
     session = callback_context._invocation_context.session
     url_to_short_id = callback_context.state.get("url_to_short_id", {})
     sources = callback_context.state.get("sources", {})
@@ -166,34 +177,97 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
     for event in session.events:
         if not (event.grounding_metadata and event.grounding_metadata.grounding_chunks):
             continue
-        for chunk in event.grounding_metadata.grounding_chunks:
+        chunks_info = {}
+        for idx, chunk in enumerate(event.grounding_metadata.grounding_chunks):
             if not chunk.web:
                 continue
             url = chunk.web.uri
-            title = chunk.web.title if chunk.web.title != chunk.web.domain else chunk.web.domain
+            title = (
+                chunk.web.title
+                if chunk.web.title != chunk.web.domain
+                else chunk.web.domain
+            )
             if url not in url_to_short_id:
                 short_id = f"src-{id_counter}"
                 url_to_short_id[url] = short_id
-                sources[short_id] = {"short_id": short_id, "title": title, "url": url, "domain": chunk.web.domain}
+                sources[short_id] = {
+                    "short_id": short_id,
+                    "title": title,
+                    "url": url,
+                    "domain": chunk.web.domain,
+                    "supported_claims": [],
+                }
                 id_counter += 1
-
+            chunks_info[idx] = url_to_short_id[url]
+        if event.grounding_metadata.grounding_supports:
+            for support in event.grounding_metadata.grounding_supports:
+                confidence_scores = support.confidence_scores or []
+                chunk_indices = support.grounding_chunk_indices or []
+                for i, chunk_idx in enumerate(chunk_indices):
+                    if chunk_idx in chunks_info:
+                        short_id = chunks_info[chunk_idx]
+                        confidence = (
+                            confidence_scores[i] if i < len(confidence_scores) else 0.5
+                        )
+                        text_segment = support.segment.text if support.segment else ""
+                        sources[short_id]["supported_claims"].append(
+                            {
+                                "text_segment": text_segment,
+                                "confidence": confidence,
+                            }
+                        )
     callback_context.state["url_to_short_id"] = url_to_short_id
     callback_context.state["sources"] = sources
 
+def citation_replacement_callback(
+    callback_context: CallbackContext,
+) -> genai_types.Content:
+    """Replaces citation tags in a report with Markdown-formatted links.
+
+    Processes 'final_cited_report' from context state, converting tags like
+    `<cite source="src-N"/>` into hyperlinks using source information from
+    `callback_context.state["sources"]`. Also fixes spacing around punctuation.
+
+    Args:
+        callback_context (CallbackContext): Contains the report and source information.
+
+    Returns:
+        genai_types.Content: The processed report with Markdown citation links.
+    """
+    final_report = callback_context.state.get("final_cited_report", "")
+    sources = callback_context.state.get("sources", {})
+
+    def tag_replacer(match: re.Match) -> str:
+        short_id = match.group(1)
+        if not (source_info := sources.get(short_id)):
+            logging.warning(f"Invalid citation tag found and removed: {match.group(0)}")
+            return ""
+        display_text = source_info.get("title", source_info.get("domain", short_id))
+        return f" [{display_text}]({source_info['url']})"
+
+    processed_report = re.sub(r'<cite\s+source\s*=\s*["\']?\s*(src-\d+)\s*["\']?\s*/>', tag_replacer, final_report, flags=re.IGNORECASE)
+    processed_report = re.sub(r"\s+([.,;:])", r"\1", processed_report)
+    callback_context.state["final_report_with_citations"] = processed_report
+    return genai_types.Content(parts=[genai_types.Part(text=processed_report)])
+    
 # --- NEW: Instructions for the Two-Tiered General Research System ---
 
 SIMPLE_SEARCH_AGENT_INSTRUCTION = """
-You are a fast and efficient search agent. Your goal is to provide a quick, sourced answer to a user's question.
+You are a fast and efficient search agent. Your only job is to take the user's question, pass it to a tool, and present the tool's output directly to the user. You MUST NOT summarize or change the content of the tool's output.
 
-**Workflow:**
-1.  **Search**: Use the `google_search_agent` tool with the user's query.
-2.  **Visualize (If Needed)**: If the user's query explicitly asks for a chart or visualization (e.g., "show me a chart of..."), use the `VisualizationAgent` tool.
-3.  **Synthesize and Source**: Combine the information from the tools into a clear, concise answer.
-    *   If the `google_search_agent` provides a summary and a list of source URLs, present the summary and then list each source URL under a "Sources:" heading.
-    *   If the `google_search_agent` provides only a text summary, present it and append the note: "This information was gathered from a general web search."
-    *   If a chart was created, include the image URL in your response.
+**CRITICAL Workflow:**
 
-Your final response must be a direct answer to the user's question, properly sourced.
+1.  **Tool Execution**:
+    *   If the user's query is a straightforward question, you **MUST** call the `google_search_agent` tool.
+    *   If the user's query explicitly asks for a chart or visualization, you **MUST** call the `ChartProducerAgent3` tool.
+
+2.  **Presenting Results (DO NOT CHANGE THE CONTENT):**
+    *   The `google_search_agent` tool will return a detailed, multi-paragraph text summary. Your job is to present this **entire summary, verbatim**, to the user.
+    *   After presenting the summary, check for grounding metadata (sources). If sources are available, you **MUST** list each source URL under a "Sources:" heading.
+    *   If no specific source URLs are available in the tool's output, you **MUST** append the note: "This information was gathered from a general web search."
+    *   If you used the `ChartProducerAgent3`, your entire response **MUST** be the image URL that the tool provides.
+
+**Your final response must be the direct, unaltered output from the tool you called, formatted with sources as specified.**
 """
 
 DEEP_RESEARCH_AGENT_INSTRUCTION = """
@@ -274,20 +348,27 @@ You are a highly specialized Data Visualization Agent. Your sole purpose is to r
 
 1.  **Parse the JSON Input:** The user's `request` will be a single JSON string. You must parse this to access its contents.
 
-2.  **Analyze Data Structure & Select the Correct Tool (CRITICAL):**
-    This is your most important decision. You must examine the structure of the `chart_data` array to choose the right tool.
-    
-    *   **Check for Grouped Data:** Look at the objects inside the `chart_data` array. If an object contains **more than one key with a numeric value** in addition to a single category/group key, this is **GROUPED DATA**.
+2.  **Data Format Pre-processing (IMPORTANT):**
+    *   The data for the chart will be in a field named either `chart_data` or `data`.
+    *   The chart type will be in a field named either `chart_type` or `type`.
+    *   The data itself can come in two formats. You **MUST** handle both by converting Format 2 into Format 1 if necessary.
+        *   **Format 1 (List of Objects - Preferred):** `[{"category": "A", "value": 1}, {"category": "B", "value": 2}]`. If the data is in this format, you can use it directly.
+        *   **Format 2 (Dictionary of Lists):** `{"categories": ["A", "B"], "values": [1, 2]}`. If you see this format, you **MUST** transform it into Format 1 before proceeding. The keys for categories and values might have different names.
+
+3.  **Analyze Data Structure & Select the Correct Tool (CRITICAL):**
+    This is your most important decision. You must examine the structure of the (now pre-processed) data array to choose the right tool.
+
+    *   **Check for Grouped Data:** Look at the objects inside the data array. If an object contains **more than one key with a numeric value** in addition to a single category/group key, this is **GROUPED DATA**.
         *   **Action for Grouped Data:** You **MUST** call the `generate_grouped_bar_chart` tool. The `group_field` argument for this tool will be the key that holds the main category name (e.g., "group", "treatment").
 
-    *   **Check for Simple Data:** If each object in the `chart_data` array contains only **one key with a numeric value** alongside a category key, this is **SIMPLE DATA**.
-        *   **Action for Simple Data:** Use the `chart_type` field from the JSON to select from the simple charting tools (`generate_simple_bar_chart`, `generate_simple_line_chart`, `generate_pie_chart`).
+    *   **Check for Simple Data:** If each object in the data array contains only **one key with a numeric value** alongside a category key, this is **SIMPLE DATA**.
+        *   **Action for Simple Data:** Use the `chart_type` field from the JSON to select from the simple charting tools. Treat **"column_chart" as an alias for "bar"**.
 
-3.  **Map JSON to Tool Arguments:**
-    *   You MUST meticulously map the keys from the parsed JSON object (`chart_data`, `chart_title`, etc.) to the corresponding arguments of the chosen tool function.
+4.  **Map JSON to Tool Arguments:**
+    *   You MUST meticulously map the keys from the parsed JSON object (`title`, etc.) to the corresponding arguments of the chosen tool function.
     *   For `generate_pie_chart`, remember that the `labels_field` argument maps to the JSON's `category_field`, and `values_field` maps to the JSON's `value_field`.
 
-4.  **Return ONLY the URL:** Your final, entire output **MUST** be the URL string returned by the charting tool (e.g., "/static/charts/chart_uuid.png"). Do not add any conversational text, acknowledgements, or extra formatting.
+5.  **Return ONLY the URL:** Your final, entire output **MUST** be the URL string returned by the charting tool (e.g., "/static/charts/chart_uuid.png"). Do not add any conversational text, acknowledgements, or extra formatting.
 
 ---
 **--- Example Workflows (Study These Carefully) ---**
@@ -295,19 +376,19 @@ You are a highly specialized Data Visualization Agent. Your sole purpose is to r
 **Example 1: Simple Bar Chart**
 *   **Input `request`:** `'{ "chart_type": "bar", "chart_data": [{"therapy": "Therapy A", "remission_rate": 52}, {"therapy": "Therapy B", "remission_rate": 60}], "chart_title": "Remission Rates" }'`
 *   **Your Analysis:** Each data object has only one numeric value (`remission_rate`). This is SIMPLE DATA. The `chart_type` is "bar".
-*   **Your Action:** Call `generate_simple_bar_chart(data=[...], category_field="therapy", value_field="remission_rate", title="Remission Rates")`.
+*   **Your Action:** Call `generate_simple_bar_chart(data=[...], category_field="therapy", value_field="remission_rate", title="Remission Rates")`
 *   **Your Final Output:** `"/static/charts/chart_12345.png"`
 
 **Example 2: Grouped Bar Chart (NEW AND IMPORTANT)**
 *   **Input `request`:** `'{ "chart_data": [{"treatment": "Chemotherapy", "Stage IIA": 67.5, "Stage IIB": 47.5}, {"treatment": "Immunotherapy", "Stage IIA": 75.0, "Stage IIB": 55.0}], "chart_title": "Survival by Stage" }'`
 *   **Your Analysis:** The "Chemotherapy" object contains **two** numeric values ("Stage IIA" and "Stage IIB"). This is GROUPED DATA.
-*   **Your Action:** Call `generate_grouped_bar_chart(data=[...], group_field="treatment", title="Survival by Stage")`.
+*   **Your Action:** Call `generate_grouped_bar_chart(data=[...], group_field="treatment", title="Survival by Stage")`
 *   **Your Final Output:** `"/static/charts/chart_67890.png"`
 
 **Example 3: Pie Chart**
 *   **Input `request`:** `'{ "chart_type": "pie", "chart_data": [{"region": "North America", "sales": 4500}, {"region": "Europe", "sales": 3200}], "chart_title": "Sales by Region" }'`
 *   **Your Analysis:** Each data object has only one numeric value (`sales`). This is SIMPLE DATA. The `chart_type` is "pie".
-*   **Your Action:** Call `generate_pie_chart(data=[...], labels_field="region", values_field="sales", title="Sales by Region")`.
+*   **Your Action:** Call `generate_pie_chart(data=[...], labels_field="region", values_field="sales", title="Sales by Region")`
 *   **Your Final Output:** `"/static/charts/pie_chart_abcde.png"`
 """
 
@@ -413,6 +494,24 @@ All raw text from `research_findings`.
 
 Your Mandatory Workflow:
 1. Scan for All Visuals: Read through all the available text in `research_findings`.
+2. Generate Charts: For every piece of quantifiable data you find (e.g., percentages, funding numbers), you MUST:
+    *  Format the data into the required JSON structure.
+    *  Call the `VisualizationAgent` tool with the JSON to generate a chart.
+
+Consolidate Output: Your final output should be a well-formatted "Data Insights" that presents the URLs for every chart and image you generated, each with a clear title.
+
+Example Output:
+Data Insights
+Chart: Efficacy of huCART19-IL18 Therapy
+[/static/charts/chart_abc123.png]
+"""
+
+CHART_PRODUCER3_INSTRUCTION = """
+You are a specialist in identifying visual information within research data. Your only job is to find all opportunities for charts in the available text and call the appropriate tools to generate them.
+Your Available Information
+
+Your Mandatory Workflow:
+1. Scan for All Visuals: Read through all the available text.
 2. Generate Charts: For every piece of quantifiable data you find (e.g., percentages, funding numbers), you MUST:
     *  Format the data into the required JSON structure.
     *  Call the `VisualizationAgent` tool with the JSON to generate a chart.
@@ -535,11 +634,11 @@ Do not add, edit, or summarize anything. Just stack the available report compone
 FINAL_AGGREGATOR2_INSTRUCTION = """
 You are a simple report compiler. Your only job is to combine up to four report components into one final document.
 You will have the following information available in the session state:
-- `text_report`: The detailed written summary from initial research.
+- `final_report_with_citations`: The detailed written summary from initial research, with citations converted to links.
 - `chart_report`: A report containing URLs for data charts.
 
 
-Your final output **MUST** be the `text_report`, followed by the `chart_report`.
+Your final output **MUST** be the `final_report_with_citations`, followed by the `chart_report`.
 If any report component is missing, empty, or None, simply omit it from the final document but maintain the order of the others.
 Do not add, edit, or summarize anything. Just stack the available report components.
 """
@@ -967,6 +1066,7 @@ def create_streaming_agent_with_mcp_tools(
        instruction=VISUALIZATION_AGENT_INSTRUCTION,
        tools=[generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart, generate_grouped_bar_chart], # UPDATED TOOLS
        output_key="visualization_output", # Or handle output directly
+       disallow_transfer_to_parent=True,
        **shared_callbacks 
     )
     logging.info(f"VisualizationAgent instance created: {visualization_agent.name}")
@@ -977,7 +1077,7 @@ def create_streaming_agent_with_mcp_tools(
 
     chart_producer_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
-        name="ChartProducerAgent",
+        name="ChartProducerAgent1",
         instruction=CHART_PRODUCER_INSTRUCTION,
         tools=[visualization_agent_tool], # Its only tool is the viz agent
         output_key="chart_report",
@@ -986,14 +1086,28 @@ def create_streaming_agent_with_mcp_tools(
 
     chart_producer2_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
-        name="ChartProducerAgent",
+        name="ChartProducerAgent2",
         instruction=CHART_PRODUCER2_INSTRUCTION,
+        tools=[visualization_agent_tool], # Its only tool is the viz agent
+        output_key="chart_report",
+        disallow_transfer_to_parent=True,
+        **shared_callbacks 
+    )
+
+    chart_producer3_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ChartProducerAgent3",
+        instruction=CHART_PRODUCER3_INSTRUCTION,
         tools=[visualization_agent_tool], # Its only tool is the viz agent
         output_key="chart_report",
         **shared_callbacks 
     )
 
-    # --- Create the Special Search Agent ---
+    chart_producer3_agent_tool = AgentTool(agent=chart_producer3_agent)
+    if hasattr(chart_producer3_agent_tool, 'run_async'):
+        chart_producer3_agent_tool.func = chart_producer3_agent_tool.run_async
+    all_root_agent_tools.append(chart_producer3_agent_tool)
+
     # --- General Research Synthesizer Agent and its components ---
     # This replaces the simple SpecialSearchAgent with a more robust, iterative pipeline.
 
@@ -1003,6 +1117,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction="You are a research strategist. Your job is to create a high-level, 5-point research plan based on the user's query. Classify each point as [RESEARCH] for information gathering or [DELIVERABLE] for synthesis tasks.",
         tools=[google_search_agent_tool],
         output_key="research_plan",
+        disallow_transfer_to_parent=True,
         **shared_callbacks
     )
     section_researcher = LlmAgent(
@@ -1012,6 +1127,7 @@ def create_streaming_agent_with_mcp_tools(
         tools=[google_search_agent_tool],
         output_key="research_findings",
         after_agent_callback=collect_research_sources_callback,
+        disallow_transfer_to_parent=True,
         **shared_callbacks
     )
 
@@ -1032,6 +1148,7 @@ def create_streaming_agent_with_mcp_tools(
         instruction="You are a specialist researcher. Execute EVERY query from 'research_evaluation.follow_up_queries' using the `google_search_agent` tool. Synthesize the new findings and COMBINE them with the existing information in 'research_findings'. Your output is the new, complete set of research findings.",
         tools=[google_search_agent_tool],
         output_key="research_findings",
+        disallow_transfer_to_parent=True,
         after_agent_callback=collect_research_sources_callback,
         **shared_callbacks
     )
@@ -1039,13 +1156,30 @@ def create_streaming_agent_with_mcp_tools(
     report_composer = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
         name="ReportComposer",
-        instruction="You are a report writer. Using the final 'research_findings' from the session state, write a comprehensive, well-structured report under 300 lines. Do not create charts or images.",
-        output_key="text_report",
+        instruction="""You are a world-class AI Research Analyst and Writer. Your job is to synthesize all available information into a single, insightful, and meticulously cited research report.
+
+**--- INPUT DATA ---**
+*   **High-Level Summary:** `{research_findings}` (Use this for structure and flow, but NOT for direct text).
+*   **Primary Data - Citation Sources:** `{sources}` (This is your main source of information. It's a dictionary where each key is a source ID like "src-1", and the value contains the URL, title, and a list of "supported_claims" which are direct quotes from that source).
+
+**--- CRITICAL: Citation System ---**
+To cite a source, you **MUST** insert a special citation tag directly after the claim it supports.
+
+**The only correct format is:** `<cite source="src-ID_NUMBER" />`
+
+**--- Final Instructions ---**
+1.  **Synthesize from Primary Data:** Read through the `supported_claims` within each entry in the **Citation Sources** dictionary.
+2.  **Construct the Report:** Weave these claims into a coherent, well-structured narrative. You can rephrase and connect the claims, but the core information must come from them.
+3.  **Cite Every Claim:** As you incorporate a claim from a source, you **MUST** immediately add its corresponding citation tag. For example, if you use a claim from the "src-5" entry, you must add `<cite source="src-5" />` right after it.
+4.  **Use the High-Level Summary for Guidance:** Use the **High-Level Summary** (`{research_findings}`) to understand the overall topic and desired structure of the report, but do not copy text from it. Your report's text must be a new synthesis of the `supported_claims`.
+5.  Do **NOT** create a "References" or "Sources" section; all citations must be in-line.
+6.  The report should be a **text-only report** under 500 lines.
+""",
+        output_key="final_cited_report",
+        after_agent_callback=citation_replacement_callback,
+        disallow_transfer_to_parent=True,
         **shared_callbacks
     )
-
-    # --- Assemble the Tier 1 and Tier 2 Research Agents ---
-
 
 
     trend_data_fetcher_agent = LlmAgent(
@@ -1163,7 +1297,7 @@ def create_streaming_agent_with_mcp_tools(
         name="SimpleSearchAgent",
         instruction=SIMPLE_SEARCH_AGENT_INSTRUCTION,
         description="Provides a quick, sourced answer to a straightforward question.",
-        tools=[google_search_agent_tool, visualization_agent_tool],
+        tools=[google_search_agent_tool, chart_producer3_agent_tool],
         **shared_callbacks
     )
     simple_search_agent_tool = AgentTool(agent=simple_search_agent)
@@ -1227,6 +1361,7 @@ def create_streaming_agent_with_mcp_tools(
     deep_research_agent_tool = AgentTool(agent=deep_research_agent)
     if hasattr(deep_research_agent_tool, 'run_async'):
         deep_research_agent_tool.func = deep_research_agent_tool.run_async
+    all_root_agent_tools.append(deep_research_agent_tool)
 
     # The Router that decides between Tier 1 and Tier 2
     research_router_agent = LlmAgent(
