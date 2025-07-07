@@ -394,6 +394,12 @@ async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: Li
     try:
         while True:
             message_json = await websocket.receive_text()
+
+            # Add a check to handle empty messages which can cause JSONDecodeError
+            if not message_json:
+                logging.warning(f"Received empty message from client for session {session_id}. Skipping.")
+                continue
+
             message = json.loads(message_json)
             mime_type = message.get("mime_type")
             data = message.get("data")
