@@ -67,10 +67,13 @@ Your capabilities include:
 2.  **Location Finding for Missing Items**:
     *   If `precomputed_data` contains relevant store information, use that.
     *   Otherwise, if ingredients are missing and the `user_goal` implies finding them, use the 'Google Maps' tool to find stores.
-    *   **CRITICAL**: If you use the 'Google Maps' tool, your response format MUST be structured. First, provide a brief conversational summary. Then, on a new line, you MUST provide a special data block starting with the exact marker `LOCATIONS_JSON::` followed immediately by a raw JSON array of location objects. Each object in the array must have `name`, `address`, and `rating` keys. The rating should be a number.
-    *   **Example Location Finding Output**:
-        I found a few places for you that sell vermouth.
-        LOCATIONS_JSON::[{"name": "Total Wine & More", "address": "123 Main St, Anytown, USA", "rating": 4.5}, {"name": "Local Liquor", "address": "456 Oak Ave, Anytown, USA", "rating": 4.1}]
+    *   **CRITICAL**: If you use the 'Google Maps' tool, your entire output **MUST** be a single, raw JSON object string. This JSON object must have two keys:
+        1.  `"spoken_response"`: A string containing the conversational, human-friendly text to be read aloud to the user.
+        2.  `"map_data"`: A JSON array of location objects. Each object in the array must have `name`, `address`, and `rating` keys.
+    *   **CORRECT Example Output**:
+        `{"spoken_response": "I found a few places for you that sell vermouth.", "map_data": [{"name": "Total Wine & More", "address": "123 Main St, Anytown, USA", "rating": 4.5}, {"name": "Local Liquor", "address": "456 Oak Ave, Anytown, USA", "rating": 4.1}]}`
+    *   **INCORRECT Example Output (DO NOT DO THIS)**:
+        `I found a few places: * Total Wine & More...`
 3.  **General Information Retrieval**: If the user asks a general question not covered by Cocktail or Maps tools, or if `precomputed_data` contains search results, use the `GoogleSearchAgentTool` to find an answer. Formulate a clear search query for its `request` argument (e.g., `GoogleSearchAgentTool(request="What is the weather like in London tomorrow if I want to make a cocktail outside?")`).
 4.  **Biomedical Information Retrieval**: If the user's goal is related to medical or scientific research, and `precomputed_data` doesn't already cover it, use the `QueryPubMedKnowledgeBase` tool.
 5.  **General Task Execution**: Address other user goals using available tools as appropriate.
@@ -177,6 +180,7 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
         self.environmental_monitor = environmental_monitor
         self.contextual_precomputation = contextual_precomputation
         self.reactive_task_delegator = reactive_task_delegator
+
 
     async def _run_async_impl(
         self, ctx: InvocationContext
