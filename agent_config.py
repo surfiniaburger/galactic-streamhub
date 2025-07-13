@@ -7,6 +7,18 @@ from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
 import json # For Root Agent instruction example
 import re
+import cv2
+import numpy as np
+from deepface import DeepFace
+from transformers import pipeline
+import torch
+import soundfile as sf
+import io
+import asyncio
+
+# Import the transient data store from the new shared_state module
+from shared_state import transient_data_store
+
 #from tools.web_utils import fetch_web_article_text_tool 
 # Import your callback functions and mongo_memory_service instance
 from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent
@@ -32,7 +44,7 @@ from proactive_agents import (
     ContextualPrecomputationAgent, CONTEXTUAL_PRECOMPUTATION_INSTRUCTION,
     ReactiveTaskDelegatorAgent, REACTIVE_TASK_DELEGATOR_INSTRUCTION,
     ReactiveTaskDelegatorAgent, REACTIVE_TASK_DELEGATOR_INSTRUCTION,
-    VideoReportAgent 
+    VideoReportAgent
 )
 
 # Import the Google Search Agent
@@ -75,62 +87,105 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 2.  **Visual Scene Analysis (Multimodal Perception)**:
     *   Analyze incoming video frames to identify relevant objects ('seen_items') and infer context ('initial_context_keywords').
 
+3.  **Emotional Context Analysis (If video/audio is active):**
+    *   You **MUST** call the `EmotionalSynthesizerAgent` tool. **Crucially, you must pass it the user's transcribed text.** Example: `EmotionalSynthesizerAgent(transcribed_text="I'm doing great today.")`. This tool analyzes facial expressions, vocal tone, and the provided text to create an overall emotional context.
+    *   The output will be a JSON object stored in `ctx.session.state['emotional_context']`.
+    *   **CRITICAL**: You **MUST** use this emotional context to guide your responses.
+        *   If the user seems frustrated or confused, offer to simplify or re-explain.
+        *   If the `incongruence_detected` flag is `true`, it means the user's words don't match their non-verbal cues. Gently acknowledge this to build trust and offer better help. For example: "I understand you said it's clear, but it seems there might still be some confusion. Would you like me to try explaining it a different way?"
     
-3.  **Direct Tool Usage (for simple, direct queries)**:
+    
+4.  **Direct Tool Usage (for simple, direct queries)**:
     *   You have direct access to tools for: cocktails, weather. Use these for straightforward requests.
-4.  **CRITICAL for Locations**: If the user's request involves finding places, stores, addresses, or directions (e.g., "where can I buy...", "find a store near me"), you **MUST** delegate this task to the `ProactiveContextOrchestrator` tool. This tool is specially designed to handle location queries and provide a structured JSON response for the map feature. Do not call the Google Maps tool directly.
+5.  **CRITICAL for Locations**: If the user's request involves finding places, stores, addresses, or directions (e.g., "where can I buy...", "find a store near me"), you **MUST** delegate this task to the `ProactiveContextOrchestrator` tool. This tool is specially designed to handle location queries and provide a structured JSON response for the map feature. Do not call the Google Maps tool directly.
 
-5.  **Delegation to `ProactiveContextOrchestrator` tool**:
+6.  **Delegation to `ProactiveContextOrchestrator` tool**:
     *   This tool is very powerful. It can monitor context, make proactive suggestions, or execute complex reactive tasks.
     *   **ALWAYS POPULATE SESSION STATE BEFORE CALLING `ProactiveContextOrchestrator`**:
         *   `ctx.session.state['input_user_goal'] = "The user's stated goal or query"`
         *   `ctx.session.state['input_seen_items'] = ["item1", "item2"]` (from your visual analysis)
         *   `ctx.session.state['initial_context_keywords'] = ["keyword1", "keyword2"]` (from your visual and query analysis) # type: ignore
+        *   `ctx.session.state['emotional_context'] = {"facial": "...", "vocal": "...", ...}` (from the `EmotionalSynthesizerAgent`)
     *   **HOW TO CALL `ProactiveContextOrchestratorTool`**: Invoke it by providing a single argument named `request`.
-    *   **HOW TO CALL**: Invoke `ProactiveContextOrchestratorTool` by providing it with a single argument named `request`.
-        *   The value of `request` should be a JSON string containing 'user_goal' (what the user explicitly asked for this turn) and 'seen_items' (what you currently see). The tool name will be `ProactiveContextOrchestrator`.
-        *   Example: `ProactiveContextOrchestrator(request='{"user_goal": "What can I make with these?", "seen_items": ["gin", "lime"]}')`
+    *   **HOW TO CALL**: Invoke `ProactiveContextOrchestrator` by providing it with a single argument named `request`.
+        *   The value of `request` should be a JSON string containing 'user_goal' (what the user explicitly asked for this turn) and 'seen_items' (what you currently see).
+        *   **CRITICAL**: You MUST also check if the user's location is available in `ctx.session.state['lat']` and `ctx.session.state['lon']`. If it is, you MUST include 'lat' and 'lon' keys in the JSON request string.
+        *   Example with location: `ProactiveContextOrchestrator(request='{"user_goal": "Find bars near me", "seen_items": [], "lat": 34.05, "lon": -118.25}')`
     *   **AFTER THE TOOL RUNS, CHECK SESSION STATE**:
         *   Look for `ctx.session.state['proactive_suggestion_to_user']`. If present, this is a suggestion from the orchestrator. Present this to the user.
         *   If the user accepts the suggestion in a follow-up turn, set `ctx.session.state['accepted_precomputed_data'] = ctx.session.state['proactive_precomputed_data_for_next_turn']` and call the tool again with the user's affirmative response as the new 'user_goal'.
         *   If no proactive suggestion, the tool will handle the task reactively, and its direct output (your final response) will be the answer.
     *   **PASS-THROUGH RESPONSE**: When the `ProactiveContextOrchestrator` tool returns a response (especially a JSON object for maps), you **MUST** treat it as the final, complete answer. Pass this response directly to the user without any changes, summarization, or reformatting.
-6.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous.
-7.  **Delegation to `MasterResearchSynthesizer`**:
+7.  **Conversational Interaction**: Engage in general conversation if no specific task or tool is appropriate. Ask clarifying questions if the user's request is ambiguous. **EXCEPTION**: If a tool returns a JSON string starting with `{"spoken_response":`, you MUST return that exact string as your final answer and nothing else.
+
+8.  **Delegation to `MasterResearchSynthesizer`**:
     *   If the user's query is clearly involves clinical trials (e.g., "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
 
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
-8.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...",  "find papers on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `DeepResearchAgent`.  
+10.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...",  "find papers on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `DeepResearchAgent`.  
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `DeepResearchAgent` tool return a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
 
-9.  **Handling Ingestion Confirmation for Deep Dive Results:**
+11.  **Handling Ingestion Confirmation for Deep Dive Results:**
     *   If your last response to the user (likely from the `MasterResearchSynthesizer` via the `DeepDiveReportAgent`) included a question about ingesting additional findings (e.g., "Would you like to attempt to ingest them into our database?"), and the user's current response is affirmative (e.g., "yes", "please ingest them", "proceed with ingestion"):
         1. You MUST call the `BulkIngestionProcessorAgent` tool. Pass an empty request or a simple instruction like 'Process pending ingestion items' as the request argument to the tool (e.g., `BulkIngestionProcessorAgent(request='Process pending ingestion items')`).
         2. The output from `BulkIngestionProcessorAgent` will be your response to the user.
     *   If the user declines or asks something else, proceed with your normal conversational flow
 
-10.  ** Delegation for Accessibility**:
+12.  ** Delegation for Accessibility**:
     *   **IF** the user's request is clearly for accessibility assistance (e.g., "describe what you see", "what's in front of me?", "can you read this for me?", "what does this label say?"), you **MUST** delegate the task to the `AccessibilityOrchestratorAgent` tool.
     *   **Crucially**, before calling the tool, ensure you have populated `ctx.session.state['input_seen_items']` based on your visual analysis.
     *   The direct output from the `AccessibilityOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
 
-11. **Delegation for Auditory Assistance**:
+13. **Delegation for Auditory Assistance**:
     *   **IF** the user's request is clearly for auditory assistance (e.g., "what was that sound?", "how do I sound?"):
         You **MUST** delegate the task to the `AuditoryAssistanceOrchestratorAgent` tool.
     *   The direct output from the `AuditoryAssistanceOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
 
-12. **Delegation for Cognitive Assistance**:
+14. **Delegation for Cognitive Assistance**:
     *   **IF** the user asks you to simplify text (e.g., "can you make this easier to read?", "explain this to me simply"):
         1.  First, you **MUST** call the `set_text_for_simplification` tool with the text that needs to be simplified.
         2.  Then, you **MUST** call the `CognitiveAssistanceOrchestratorAgent` to perform the simplification.
     *   The direct output from the `CognitiveAssistanceOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
 
-13. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+15. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+
 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
 """
 
+# --- NEW: Instructions for the Emotional Intelligence Suite ---
+FACIAL_EMOTION_INSTRUCTION = "You are a facial emotion recognition specialist. Analyze the user's face from the video feed and return the dominant emotion detected (e.g., 'happy', 'sad', 'confused', 'frustrated'). Your output must be a single JSON object: {\"facial_emotion\": \"detected_emotion\"}."
+VOCAL_EMOTION_INSTRUCTION = "You are a speech emotion recognition specialist. Analyze the user's vocal tone from the audio feed and return the dominant emotion detected (e.g., 'calm', 'angry', 'excited'). Your output must be a single JSON object: {\"vocal_emotion\": \"detected_emotion\"}."
+TEXT_EMOTION_INSTRUCTION = "You are a text sentiment and emotion analysis specialist. Analyze the user's transcribed text and return the dominant emotion detected (e.g., 'positive', 'negative', 'inquisitive'). Your output must be a single JSON object: {\"text_emotion\": \"detected_emotion\"}."
+
+EMOTIONAL_SYNTHESIZER_INSTRUCTION = """
+You are an AI emotional intelligence synthesizer. Your goal is to provide a holistic emotional analysis by using three specialist tools in parallel.
+
+1.  You **MUST** call the `analyze_facial_emotion` tool to get the user's facial expression.
+2.  You **MUST** call the `analyze_vocal_emotion` tool to get the user's vocal tone.
+3.  You **MUST** call the `analyze_audio_sentiment` tool, passing the `transcribed_text` you received as an argument to get the textual emotion.
+4.  After receiving results from all three tools, analyze them for congruence. If they conflict (e.g., text is 'I am fine' but face is 'sad'), report incongruence.
+5.  Your final output **MUST** be a single, raw JSON object summarizing the complete state, like: `{\"facial\": \"sad\", \"vocal\": \"neutral\", \"textual\": \"positive\", \"incongruence_detected\": true, \"summary\": \"User states positivity but appears sad.\"}`. Do not wrap the JSON in a markdown code block.
+"""
+
+# --- Singleton for the Speech Emotion Recognition model ---
+# This ensures the model is loaded only once, saving time and memory.
+class SERModelSingleton:
+    _instance = None
+    def __new__(cls):
+        if cls._instance is None:
+            logging.info("Initializing Speech Emotion Recognition model (superb/wav2vec2-base-superb-er)...")
+            try:
+                # Using a popular, well-rounded model for speech emotion recognition
+                cls._instance = pipeline("audio-classification", model="superb/wav2vec2-base-superb-er")
+                logging.info("Speech Emotion Recognition model loaded successfully.")
+            except Exception as e:
+                logging.error(f"Failed to load SER model: {e}", exc_info=True)
+                cls._instance = None
+        return cls._instance
+
+ser_pipeline = SERModelSingleton()
 # --- Structured Output Models for General Research ---
 class SearchQuery(BaseModel):
     """Model representing a specific search query for web search."""
@@ -1583,6 +1638,96 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
     all_root_agent_tools.append(set_text_for_simplification)
     logging.info("CognitiveAssistanceOrchestratorAgent and its tools have been added to the Root Agent's tools.")
 
+    # --- NEW: Create Emotional Intelligence Agents ---
+
+    async def analyze_facial_emotion(tool_context: ToolContext) -> str:
+        """Analyzes the last video frame to detect facial emotion using DeepFace."""
+        logging.info("Facial emotion analysis tool called.")
+        image_bytes = tool_context._invocation_context.session.state.get('latest_image_bytes')
+
+        if not image_bytes:
+            logging.warning("Facial emotion analysis: No image bytes found in session state.")
+            return json.dumps({"facial_emotion": "unknown", "error": "No image provided."})
+
+        try:
+            def blocking_face_analysis():
+                # This is a synchronous, CPU-bound operation
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                # DeepFace.analyze returns a list of dicts, one for each face.
+                # 'enforce_detection=False' prevents an exception if no face is found.
+                return DeepFace.analyze(frame, actions=['emotion'], enforce_detection=False)
+
+            # Run the blocking operation in a separate thread to avoid freezing the server
+            analysis_results = await asyncio.to_thread(blocking_face_analysis)
+
+            if isinstance(analysis_results, list) and len(analysis_results) > 0:
+                dominant_emotion = analysis_results[0].get('dominant_emotion', 'unknown')
+                logging.info(f"Facial emotion detected: {dominant_emotion}")
+                return json.dumps({"facial_emotion": dominant_emotion})
+            else:
+                logging.info("No face detected for facial emotion analysis.")
+                return json.dumps({"facial_emotion": "no_face_detected"})
+
+        except Exception as e:
+            logging.error(f"Error during facial emotion analysis: {e}", exc_info=True)
+            return json.dumps({"facial_emotion": "error", "error_message": str(e)})
+
+    async def analyze_vocal_emotion(tool_context: ToolContext) -> str:
+        """Analyzes the last audio chunk to detect vocal emotion using a Hugging Face model."""
+        logging.info("Vocal emotion analysis tool called.")
+        
+        if ser_pipeline is None:
+            logging.error("SER pipeline is not available.")
+            return json.dumps({"vocal_emotion": "error", "error_message": "Model not loaded."})
+
+        # Get the audio bytes from the transient store, not session.state
+        session_id = tool_context._invocation_context.session.id
+        session_data = transient_data_store.get(session_id, {})
+        audio_bytes = session_data.get('latest_audio_chunk_bytes')
+
+        if not audio_bytes:
+            logging.warning("Vocal emotion analysis: No audio chunk found in session state.")
+            return json.dumps({"vocal_emotion": "unknown", "error": "No audio provided."})
+
+        try:
+            def blocking_vocal_analysis():
+                # This is a synchronous, CPU-bound operation
+                audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
+                if audio_data.ndim > 1:
+                    audio_data = audio_data.mean(axis=1)
+                return ser_pipeline(audio_data, sampling_rate=sample_rate)
+
+            # Run the blocking operation in a separate thread to avoid freezing the server
+            predictions = await asyncio.to_thread(blocking_vocal_analysis)
+
+            dominant_emotion = max(predictions, key=lambda x: x['score'])
+            emotion_label = dominant_emotion.get('label', 'unknown')
+            logging.info(f"Vocal emotion detected: {emotion_label}")
+            return json.dumps({"vocal_emotion": emotion_label})
+        except Exception as e:
+            logging.error(f"Error during vocal emotion analysis: {e}", exc_info=True)
+            return json.dumps({"vocal_emotion": "error", "error_message": str(e)})
+
+    emotional_synthesizer_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="EmotionalSynthesizerAgent",
+        instruction=EMOTIONAL_SYNTHESIZER_INSTRUCTION,
+        description="Synthesizes facial, vocal, and text emotions to check for consistency and provide an overall emotional context. This is a critical tool for empathetic interaction.",
+        # This agent's tools are the raw analysis functions.
+        tools=[
+            analyze_facial_emotion,
+            analyze_vocal_emotion,
+            analyze_audio_sentiment, # This is the tool for text emotion analysis
+        ],
+        **shared_callbacks
+    )
+    emotional_synthesizer_tool = AgentTool(agent=emotional_synthesizer_agent)
+    if hasattr(emotional_synthesizer_tool, 'run_async'):
+       emotional_synthesizer_tool.func = emotional_synthesizer_tool.run_async
+
+    all_root_agent_tools.append(emotional_synthesizer_tool)
+    logging.info("EmotionalIntelligenceSuite created and added to Root Agent's tools.")
 
 
     # 3. Create the ProactiveContextOrchestratorAgent instance

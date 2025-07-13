@@ -5,6 +5,9 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # For matplotlib
     libfreetype6-dev \
+    # For opencv-python (cv2)
+    libgl1-mesa-glx \
+    libglib2.0-0 \
     libpng-dev \
     pkg-config \
     curl=7.88.1-10+deb12u12 \
