@@ -6,6 +6,7 @@ import json
 import asyncio
 import base64
 import contextlib
+import certifi # type: ignore
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -43,6 +44,7 @@ from firebase_admin import credentials, auth
 
 # Import agent configuration
 #from main_agent.agent import create_streaming_agent_with_mcp_tools
+from shared_state import transient_data_store
 from agent_config import create_streaming_agent_with_mcp_tools
 from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT 
 # --- Configuration & Global Setup ---
@@ -159,6 +161,13 @@ async def _collect_tools_stack(
 # --- FastAPI Application Lifespan (for loading/unloading MCP tools) ---
 @asynccontextmanager
 async def app_lifespan(app_instance: FastAPI) -> Any:
+    # --- NEW: Architectural fix for SSL verification on some systems (e.g., macOS) ---
+    # This ensures that libraries like 'websockets' can verify Google's SSL certs
+    # by pointing to a trusted certificate bundle provided by the 'certifi' package.
+    if "SSL_CERT_FILE" not in os.environ:
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        logging.info(f"SSL_CERT_FILE automatically set to: {os.environ['SSL_CERT_FILE']}")
+
     # --- Initialize Firebase Admin SDK at application startup ---
     try:
         logging.info("Initializing Firebase Admin SDK...")
@@ -411,6 +420,8 @@ async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: Li
             elif mime_type and mime_type.startswith("audio/"): # More general audio check
                 decoded_data = base64.b64decode(data)
                 live_request_queue.send_realtime(Blob(data=decoded_data, mime_type=mime_type))
+                # Store the latest audio chunk in our transient store, not session.state
+                transient_data_store.setdefault(session_id, {})['latest_audio_chunk_bytes'] = decoded_data
                 logging.debug(f"[S:{session_id} CLIENT TO AGENT]: {mime_type}: {len(decoded_data)} bytes.")
             # --- NEW: Handle Video Frames (as images) ---
             elif mime_type in ["image/jpeg", "image/webp"]: # Add other image types if needed
@@ -418,8 +429,8 @@ async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: Li
                     # Assuming 'data' is a Base64 encoded string for the image
                     decoded_image_data = base64.b64decode(data)
                     # Use the session object that was passed in
-                    if session.state is not None:
-                        session.state['latest_image_bytes'] = decoded_image_data
+                    if session.state is not None: # Still use session.state for image, as it works and is simpler
+                        session.state['latest_image_bytes'] = decoded_image_data # This seems to not cause the same issue as audio
                         logging.debug(f"[S:{session_id}] Saved latest image frame to session state.")
                     # The Gemini API expects image data directly as bytes for supported formats.
                     # We send it as a Blob via send_realtime.
@@ -510,6 +521,9 @@ async def websocket_endpoint(
         # **CRITICAL CHANGE: Use the verified 'uid' as the session ID.**
         live_events, live_request_queue, session =await start_agent_session(uid, app_state, actual_is_audio)
 
+        # Initialize the transient data store for this session
+        transient_data_store[uid] = {}
+
         agent_to_client_task = asyncio.create_task(
             agent_to_client_messaging(websocket, live_events, uid, session)
         )
@@ -550,6 +564,9 @@ async def websocket_endpoint(
         
         if live_request_queue:
             live_request_queue.close() # Ensure queue is closed
+        
+        # Clean up the transient data store for this session
+        transient_data_store.pop(uid, None)
 
         # Ensure WebSocket is closed
         if websocket.client_state != websocket.client_state.DISCONNECTED:

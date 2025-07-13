@@ -18,14 +18,16 @@ GEMINI_MULTIMODAL_MODEL_ID = "gemini-2.0-flash-live-preview-04-09" # Or your pre
 # --- Instructions for Sub-Agents ---
 
 ENVIRONMENTAL_MONITOR_INSTRUCTION = """
-You are an Environmental Monitor. Your task is to analyze a list of 'seen_items' (objects identified visually in the user's environment) and a general 'user_activity_hint' (derived from the user's query, could be vague).
+You are an Environmental Monitor. Your task is to analyze a list of 'seen_items' (objects identified visually), a 'user_activity_hint' (derived from the user's query), and the user's 'emotional_context' (e.g., happy, frustrated, confused).
 Based on these, identify potential 'context_keywords' that suggest what the user might be doing or interested in.
 Focus on identifying contexts that could lead to proactive assistance.
 
 Example:
 - seen_items: ["rye whiskey bottle", "sweet vermouth bottle", "bitters", "mixing glass"], user_activity_hint: "thinking about a drink"
   Output: {"identified_context_keywords": ["cocktail_making", "manhattan_ingredients_present"]}
-- seen_items: ["board game box: Terraforming Mars", "dice", "player mats"], user_activity_hint: "what should I do tonight?"
+- seen_items: ["textbook", "notebook"], user_activity_hint: "studying for my exam", emotional_context: {"facial": "frustrated", "incongruence_detected": false}
+  Output: {"identified_context_keywords": ["difficult_study_topic", "exam_stress"]}
+- seen_items: ["board game box: Terraforming Mars", "dice", "player mats"], user_activity_hint: "what should I do tonight?", emotional_context: {"facial": "neutral"}
   Output: {"identified_context_keywords": ["board_game_setup", "terraforming_mars"]}
 - seen_items: ["laptop", "coffee mug", "notebook"], user_activity_hint: "working"
   Output: {"identified_context_keywords": ["work_session", "productivity"]}
@@ -64,7 +66,8 @@ Your capabilities include:
     *   Otherwise, if the `user_goal` involves making a food or drink item, use the 'Cocktail' tool to find the recipe.
     *   Compare the recipe ingredients against the `seen_items`.
     *   Clearly state which ingredients the user has and which are missing.
-2.  **Location Finding for Missing Items**:
+2.  **Location Finding for Missing Items or Places**:
+    *   **Use User's Location Context**: Your input may contain the user's current latitude and longitude. If the `user_goal` is a location-based query (e.g., "find places near me", "where can I get..."), you **MUST** use these coordinates as the primary location for your search unless the user explicitly mentions a different location (e.g., "find bars near the Eiffel Tower").
     *   If `precomputed_data` contains relevant store information, use that.
     *   Otherwise, if ingredients are missing and the `user_goal` implies finding them, use the 'Google Maps' tool to find stores.
     *   **CRITICAL**: If you use the 'Google Maps' tool, your entire output **MUST** be a single, raw JSON object string. This JSON object must have two keys:
@@ -81,6 +84,8 @@ Your capabilities include:
 **Input Format You Will Receive (as part of a larger JSON in session state, but you'll be invoked with these key args):**
 *   `user_goal`: A string describing what the user wants to achieve.
 *   `seen_items`: A list of strings representing items visually identified.
+*   `lat` (optional): The user's current latitude.
+*   `lon` (optional): The user's current longitude.
 *   `precomputed_data` (optional): A dictionary with previously fetched information if a proactive suggestion was accepted.
 
 **Your Response Obligation:**
@@ -187,8 +192,10 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
     ) -> AsyncGenerator[Event, None]:
         logging.info(f"[{self.name}] Orchestrator started.")
 
-        user_goal = ctx.session.state.get("input_user_goal", "")
-        seen_items = ctx.session.state.get("input_seen_items", [])
+        # Use data from the current turn's request, falling back to session state for robustness.
+        user_goal=ctx.session.state.get("input_user_goal", "")
+        seen_items=ctx.session.state.get("input_seen_items", [])
+ 
         user_activity_hint = user_goal # Could be refined
         context_keywords = [] # Initialize
 
@@ -299,6 +306,12 @@ class ProactiveContextOrchestratorAgent(BaseAgent):
             logging.info(f"[{self.name}] No proactive suggestion. Running ReactiveTaskDelegatorAgent...")
             ctx.session.state["reactive_input_user_goal"] = user_goal
             ctx.session.state["reactive_input_seen_items"] = seen_items
+
+            # --- NEW: Ensure the reactive agent gets the location for this turn ---
+            # Use the location from the session state, which was persisted earlier.
+            if 'user_latitude' in ctx.session.state and 'user_longitude' in ctx.session.state:
+                ctx.session.state["lat"] = ctx.session.state['user_latitude']
+                ctx.session.state["lon"] = ctx.session.state['user_longitude']
             # Check if there's precomputed data from a *previous* accepted suggestion
             accepted_precomputed_data = ctx.session.state.get("accepted_precomputed_data", None)
             if accepted_precomputed_data:

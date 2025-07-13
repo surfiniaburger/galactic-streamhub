@@ -56,8 +56,23 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
 *   **Real-time Streaming:** Bidirectional streaming of audio and text using WebSockets.
 *   **Dynamic UI:** A futuristic, dark-themed web interface with 3D animated elements and a space-themed background.
 *   **Comprehensive Accessibility Suite:** Provides workflows for visual (scene description, OCR), auditory (speech sentiment, sound recognition), and cognitive (text simplification) assistance.
+*   **Emotional Intelligence & Empathetic Response:** AVA analyzes facial expressions, vocal tone, and language to understand the user's emotional state, detect incongruence, and adapt its responses to be more helpful and empathetic.
 
 ## Architecture Overview
+
+## Privacy & Security by Design
+
+AVA's architecture was built with user privacy as a core principle. We believe that for a personal AI companion to be truly trusted, it must handle sensitive data responsibly.
+
+*   **Local-First Emotional Analysis:** The most sensitive biometric data—your facial expressions and vocal tone—are processed **locally on the device running the server**. The `EmotionalSynthesizerAgent` uses local libraries (`DeepFace`, `transformers`) for this analysis. This means your raw video and audio data for emotional context are not sent to external cloud services, ensuring a high degree of privacy.
+
+*   **Secure Authenticated Sessions:** All interactions with AVA are protected by **Firebase Authentication**. The backend verifies a secure token for every WebSocket connection, ensuring that only the authenticated user can access their session. The user's unique Firebase ID (`uid`) is used to namespace all session data and memory, preventing data crossover.
+
+*   **Purpose-Driven Cloud Interaction:** Data is only sent to external cloud APIs when a specific, user-initiated tool requires it. For example, an image frame is sent to the Google Vision API only when the user explicitly asks AVA to read text via the OCR tool. The system avoids continuous, indiscriminate data streaming to third-party services.
+
+*   **Decoupled Transient Data:** Real-time data, like the most recent audio chunk for vocal analysis, is held in a transient, in-memory store (`shared_state.py`) that is cleared when the session ends. This minimizes the data footprint and separates ephemeral data from long-term conversational memory.
+
+
 
 AVA employs a multi-agent architecture orchestrated by the Google Agent Development Kit:
 
@@ -79,6 +94,9 @@ AVA employs a multi-agent architecture orchestrated by the Google Agent Developm
     *   `ContextualPrecomputationAgent`: If a proactive context is identified, this agent formulates a suggestion and can use tools (including the `GoogleSearchAgentTool` or MCP tools like CocktailDB) to pre-fetch data.
     *   `ReactiveTaskDelegatorAgent`: Handles direct user requests or tasks following an accepted proactive suggestion. It can use MCP tools or the `GoogleSearchAgentTool` as needed.
     *   **If General Research Synthesis**: Delegates to `MasterResearchSynthesizer`. This agent sequentially:
+    *   **Emotional Intelligence Suite**:
+        *   `EmotionalSynthesizerAgent`: A parallel agent that runs specialists for facial, vocal, and text emotion analysis. It computes an "incongruence score" to detect when a user's words don't match their non-verbal cues, enabling AVA to respond more empathetically and effectively.
+    *   **Research & Synthesis Workflow**:
         *   Runs `DataGatheringAndConnectionAgent`: This involves parallel searches by `ResearchOrchestratorAgent` (across PubMed, web, local clinical trials DB, OpenFDA), followed by `KeyInsightExtractorAgent` and `TrialConnectorAgent`.
         *   Runs `ParallelSynthesisAgent`: This involves parallel work by `TextSynthesizerAgent` (generates text, can propose ingestion via `IngestionRouterAgentTool`), `ChartProducerAgent` (uses `VisualizationAgentTool`), and `ImageEvidenceProducerAgent` (uses `MultimodalEvidenceAgentTool` to find and prepare medical image URLs).
         *   Runs `FinalReportAggregatorAgent`: Combines all synthesized parts into the final response.
@@ -203,7 +221,7 @@ To assist users who may benefit from simplified information, AVA includes a cogn
 
 ### Prerequisites
 
-*   Python 3.13
+*   Python 3.11 or 3.12 (Python 3.13 is not yet supported by all ML dependencies)
 *   `uv` (recommended for faster virtual environment and package management: `pip install uv`)
 *   Node.js and `npx` (if you intend to run the Google Maps MCP server locally via ADK's StdioServerParameters).
 *   Access to Google Cloud Platform project with:
