@@ -155,11 +155,15 @@ async def load_memory_before_model_callback( # Changed to async def
         persona_summary = ""
         persona = mongo_memory_service.get_persona(user_id)
         if persona:
-            name = persona.get('name', 'friend')
-            goals = persona.get('goals', [])
-            persona_summary = f"[System Note: You are talking to {name}. Their stated goals are: {', '.join(goals)}. Greet them personally before addressing their request.]"
+            name = persona.get('name', 'there') # Use a neutral default if name is missing
+            goals_list = persona.get('goals', [])
+            goals_str = ", ".join(goals_list) if goals_list else "not specified"
+            # This is a more direct instruction for the LLM
+            persona_summary = f"[System Note: This is a returning user. Their name is {name}. Their stated goals are: {goals_str}. You MUST greet them by name before addressing their current request.]"
+            logger.info(f"Loaded persona for user {user_id}: {name}")
         else:
-            persona_summary = "[System Note: This is a new user. Your first action should be to call the PersonaManagementAgent to greet them and establish a persona.]"
+            persona_summary = "[System Note: This is a new user. Your ONLY first action is to call the `PersonaManagementAgent` to greet them and establish a persona. Pass the user's current query to it.]"
+            logger.info(f"No persona found for new user {user_id}.")
 
         # --- Combine with History ---
         logger.info(f"[Callback: BeforeModel] Loading recent chronological interactions (limit={DEFAULT_HISTORY_LIMIT}) for user {user_id}, session {session_id}")
