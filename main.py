@@ -189,37 +189,39 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
     except Exception as e:
         logging.critical(f"FATAL: Firebase Admin SDK failed to initialize: {e}", exc_info=True)
 
-    # --- Define Base MCP Server Configurations ---
-    # **FIXED**: The `command` and `args` are nested inside `server_params`.
-    weather_server_params = StdioConnectionParams(
-        server_params={"command": "python", "args": ["./mcp_server/weather_server.py"]}
-    )
-    ct_server_params = StdioConnectionParams(
-        server_params={"command": "python", "args": ["./mcp_server/cocktail.py"]}
-    )
-
-    current_server_configs = {
-        "weather": weather_server_params,
-        "ct": ct_server_params,
-    }
-
-    # --- ADDED BACK: Dynamic Google Maps Server Configuration ---
-    # This logic now correctly checks for the API key and adds the Maps server if present.
-    google_maps_api_key_from_env = os.environ.get("GOOGLE_MAPS_API_KEY")
-    if google_maps_api_key_from_env:
-        logging.info("Google Maps API Key found in environment. Configuring Maps MCP server.")
-        # **FIXED**: `command`, `args`, and `env` are all nested inside `server_params`.
-        maps_server_params = StdioConnectionParams(
-            server_params={
-                "command": "npx",
-                "args": ["-y", "@modelcontextprotocol/server-google-maps"],
-                "env": {"GOOGLE_MAPS_API_KEY": google_maps_api_key_from_env}
-            }
-        )
-        current_server_configs["maps"] = maps_server_params
+    current_server_configs = {}
+    if os.environ.get("DISABLE_MCP_SERVERS", "false").lower() == "true":
+        logging.warning("DISABLE_MCP_SERVERS is true. Skipping initialization of all MCP servers.")
     else:
-        logging.warning("GOOGLE_MAPS_API_KEY environment variable not found. Google Maps MCP server will not be configured.")
-    # --- END OF ADDED BACK LOGIC ---
+        # --- Define Base MCP Server Configurations ---
+        # **FIXED**: The `command` and `args` are nested inside `server_params`.
+        weather_server_params = StdioConnectionParams(
+            server_params={"command": "python", "args": ["./mcp_server/weather_server.py"]}
+        )
+        ct_server_params = StdioConnectionParams(
+            server_params={"command": "python", "args": ["./mcp_server/cocktail.py"]}
+        )
+
+        current_server_configs = {
+            "weather": weather_server_params,
+            "ct": ct_server_params,
+        }
+
+        # --- ADDED BACK: Dynamic Google Maps Server Configuration ---
+        # This logic now correctly checks for the API key and adds the Maps server if present.
+        google_maps_api_key_from_env = os.environ.get("GOOGLE_MAPS_API_KEY")
+        if google_maps_api_key_from_env:
+            logging.info("Google Maps API Key found in environment. Configuring Maps MCP server.")
+            maps_server_params = StdioConnectionParams(
+                server_params={
+                    "command": "npx",
+                    "args": ["-y", "@modelcontextprotocol/server-google-maps"],
+                    "env": {"GOOGLE_MAPS_API_KEY": google_maps_api_key_from_env}
+                }
+            )
+            current_server_configs["maps"] = maps_server_params
+        else:
+            logging.warning("GOOGLE_MAPS_API_KEY environment variable not found. Google Maps MCP server will not be configured.")
 
     # Store toolsets on the app's state for access in endpoints
     app_instance.state.mcp_toolsets = []
