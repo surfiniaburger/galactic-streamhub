@@ -27,7 +27,7 @@ from google.adk.planners import BuiltInPlanner
 from typing import Any, Dict, List, Optional, Literal, AsyncGenerator
 from mongo_memory import mongo_memory_service, MongoMemory # If in mongo_memory.py
 from callbacks import (
-    check_for_prompt_injection_callback,  # Import the new callback
+    security_check_callback,  # Import the new callback
     load_memory_before_model_callback,
     save_interaction_after_model_callback,
 )
@@ -901,14 +901,13 @@ def create_streaming_agent_with_mcp_tools(
     # in the conversation history.
     shared_callbacks = {
         "before_model_callback": [
-             check_for_prompt_injection_callback,  # Security check runs first!
+             security_check_callback,  # Security check runs first!
              load_memory_before_model_callback,
         ],
        "after_model_callback": save_interaction_after_model_callback,
     }
     all_root_agent_tools: List[Any] = []
 
-    # 1. Add all MCPToolset instances directly to the agent's tools
     if loaded_mcp_toolsets:
         all_root_agent_tools.extend(loaded_mcp_toolsets)
         logging.info(f"Added {len(loaded_mcp_toolsets)} MCPToolset instance(s) to Root Agent tools.")
