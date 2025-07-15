@@ -10,6 +10,7 @@ from google.adk.events import Event
 
 # Assuming mongo_memory_service is initialized in mongo_memory.py and imported here
 # from .mongo_memory import mongo_memory_service, HISTORY_LIMIT, MongoMemory 
+from security import sanitize_prompt_with_model_armor
 # For simplicity, if mongo_memory.py is in the same directory:
 from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT # Make sure MongoMemory class is also available if needed
 
@@ -18,13 +19,13 @@ logger = logging.getLogger(__name__)
 
 HISTORY_LIMIT = 5
 
-async def check_for_prompt_injection_callback(
+async def security_check_callback(
     callback_context: CallbackContext,
     llm_request: LlmRequest
 ) -> Optional[LlmResponse]:
     """
-    A pre-model callback to check for potential prompt injection attacks.
-
+    A pre-model callback to check for security violations using Model Armor.
+    
     This should run before any other logic that processes the user's input.
     It inspects the latest user prompt for common injection phrases.
     If a potential threat is found, it logs a warning and returns a canned
@@ -51,27 +52,25 @@ async def check_for_prompt_injection_callback(
     if not user_prompt:
         return None
 
-    injection_patterns = [
-        "ignore all previous instructions", "ignore the above", "disregard the above",
-        "you are now", "your new instructions are", "system prompt:",
-        "reveal your instructions", "what are your instructions", "print your instructions",
-    ]
-
-    for pattern in injection_patterns:
-        if pattern in user_prompt:
-            logger.warning(
-                f"Potential prompt injection detected in session {callback_context._invocation_context.session.id}. "
-                f"Pattern: '{pattern}'. Prompt: '{user_prompt[:200]}...'"
-            )
-            # Halt processing by returning a canned LlmResponse.
-            return LlmResponse(
-                content=Content(
-                    parts=[Part.from_text("Your request could not be processed due to a security policy. Please rephrase your request and try again.")],
-                    role="model"
-                ),
-                turn_complete=True # Signal the end of the turn
-            )
-
+    # --- NEW: Use Model Armor for sanitization ---
+    sanitization_result = sanitize_prompt_with_model_armor(user_prompt)
+    
+    if not sanitization_result.get("is_safe"):
+        reason = sanitization_result.get("reason", "unspecified security concern")
+        logger.warning(
+            f"Model Armor blocked prompt in session {callback_context._invocation_context.session.id}. "
+            f"Reason: '{reason}'. Prompt: '{user_prompt[:200]}...'"
+        )
+        # Halt processing by returning a canned LlmResponse.
+        return LlmResponse(
+            content=Content(
+                parts=[Part(text="Your request could not be processed due to a security policy. Please rephrase your request and try again.")],
+                role="model"
+            ),
+            turn_complete=True # Signal the end of the turn
+        )
+    
+    logger.info("Prompt passed Model Armor security check.")
     return None # No injection detected, proceed normally
 
 # --- Callback to SAVE interaction AFTER the agent processes a turn ---

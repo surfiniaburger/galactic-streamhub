@@ -57,6 +57,7 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
 *   **Dynamic UI:** A futuristic, dark-themed web interface with 3D animated elements and a space-themed background.
 *   **Comprehensive Accessibility Suite:** Provides workflows for visual (scene description, OCR), auditory (speech sentiment, sound recognition), and cognitive (text simplification) assistance.
 *   **Emotional Intelligence & Empathetic Response:** AVA analyzes facial expressions, vocal tone, and language to understand the user's emotional state, detect incongruence, and adapt its responses to be more helpful and empathetic.
+*   **Secure by Design:** Integrates Google Cloud's Model Armor to proactively sanitize user prompts against injection, jailbreaking, and other potential attacks.
 
 ## Architecture Overview
 
@@ -71,6 +72,8 @@ AVA's architecture was built with user privacy as a core principle. We believe t
 *   **Purpose-Driven Cloud Interaction:** Data is only sent to external cloud APIs when a specific, user-initiated tool requires it. For example, an image frame is sent to the Google Vision API only when the user explicitly asks AVA to read text via the OCR tool. The system avoids continuous, indiscriminate data streaming to third-party services.
 
 *   **Decoupled Transient Data:** Real-time data, like the most recent audio chunk for vocal analysis, is held in a transient, in-memory store (`shared_state.py`) that is cleared when the session ends. This minimizes the data footprint and separates ephemeral data from long-term conversational memory.
+
+*   **Proactive Prompt Sanitization:** All user input is routed through **Google Cloud's Model Armor** before being processed by the LLM. This acts as a critical security gateway, using specialized templates to detect and block malicious inputs like prompt injection and jailbreaking attempts, protecting the integrity of the agent's operations.
 
 
 
