@@ -538,4 +538,89 @@ kubectl apply -f ingress.yaml -n default
 *   `ingress.yaml` (routing, SSL termination, static IP)
 
 This migration provides "Galatic Streamhub" with a more robust, scalable, and configurable platform on GKE Autopilot, leveraging Kubernetes-native features for a production-grade deployment.
-```
+
+
+
+## The load balancer provisioned by the script above is classical, so to migrate to global external load balancer run these scripts
+
+
+Migration Commands for Your Backend Services
+1. Migrate the first backend service (galatic-streamhub-svc)
+
+# Step 1: Prepare for migration
+
+gcloud compute backend-services update k8s1-3ceed51b-default-galatic-streamhub-svc-80-3f78b3fe \
+  --external-managed-migration-state=PREPARE \
+  --global
+
+# Wait 6+ minutes, then test with 10% traffic
+
+gcloud compute backend-services update k8s1-3ceed51b-default-galatic-streamhub-svc-80-3f78b3fe \
+  --external-managed-migration-state=TEST_BY_PERCENTAGE \
+  --external-managed-migration-testing-percentage=10 \
+  --global
+
+# Gradually increase percentage (wait 6+ minutes between each step)
+
+gcloud compute backend-services update k8s1-3ceed51b-default-galatic-streamhub-svc-80-3f78b3fe \
+  --external-managed-migration-state=TEST_BY_PERCENTAGE \
+  --external-managed-migration-testing-percentage=50 \
+  --global
+
+# Then 100%
+
+gcloud compute backend-services update k8s1-3ceed51b-default-galatic-streamhub-svc-80-3f78b3fe \
+  --external-managed-migration-state=TEST_ALL_TRAFFIC \
+  --global
+
+# Finally, complete the migration
+
+gcloud compute backend-services update k8s1-3ceed51b-default-galatic-streamhub-svc-80-3f78b3fe \
+  --load-balancing-scheme=EXTERNAL_MANAGED \
+  --global
+2. Migrate the second backend service (default-http-backend)
+
+# Step 1: Prepare for migration
+
+gcloud compute backend-services update k8s1-3ceed51b-kube-system-default-http-backend-80-46c71891 \
+  --external-managed-migration-state=PREPARE \
+  --global
+
+# Wait 6+ minutes, then test with 10% traffic
+
+gcloud compute backend-services update k8s1-3ceed51b-kube-system-default-http-backend-80-46c71891 \
+  --external-managed-migration-state=TEST_BY_PERCENTAGE \
+  --external-managed-migration-testing-percentage=10 \
+  --global
+
+# Gradually increase percentage (wait 6+ minutes between each step)
+
+gcloud compute backend-services update k8s1-3ceed51b-kube-system-default-http-backend-80-46c71891 \
+  --external-managed-migration-state=TEST_BY_PERCENTAGE \
+  --external-managed-migration-testing-percentage=50 \
+  --global
+
+# Then 100%
+
+gcloud compute backend-services update k8s1-3ceed51b-kube-system-default-http-backend-80-46c71891 \
+  --external-managed-migration-state=TEST_ALL_TRAFFIC \
+  --global
+
+# Finally, complete the migration
+
+gcloud compute backend-services update k8s1-3ceed51b-kube-system-default-http-backend-80-46c71891 \
+  --load-balancing-scheme=EXTERNAL_MANAGED \
+  --global
+
+
+# Migrate forwarding rules as well
+
+# Migrate HTTP forwarding rule
+gcloud compute forwarding-rules update k8s2-fr-n8t7dy8w-default-galactic-streamhub-ingress-wm41rg4d \
+  --load-balancing-scheme=EXTERNAL_MANAGED \
+  --global
+
+# Wait 6+ minutes, then migrate HTTPS forwarding rule
+gcloud compute forwarding-rules update k8s2-fs-n8t7dy8w-default-galactic-streamhub-ingress-wm41rg4d \
+  --load-balancing-scheme=EXTERNAL_MANAGED \
+  --global
