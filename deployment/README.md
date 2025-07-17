@@ -541,7 +541,7 @@ This migration provides "Galatic Streamhub" with a more robust, scalable, and co
 
 
 
-## The load balancer provisioned by the script above is classical, so to migrate to global external load balancer run these scripts
+# The load balancer provisioned by the script above is classical, so to migrate to global external load balancer run these scripts
 
 
 Migration Commands for Your Backend Services
