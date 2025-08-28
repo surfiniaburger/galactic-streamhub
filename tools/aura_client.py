@@ -2,10 +2,57 @@ import os
 import time
 import logging
 import asyncio
+import uuid
 from gradio_client import Client, handle_file
+from google.adk.tools.tool_context import ToolContext
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+async def diagnose_plant_from_video_feed(tool_context: ToolContext) -> str:
+    """
+    Retrieves the latest video frame from the session, saves it as a temporary file,
+    and sends it for diagnosis.
+
+    Args:
+        tool_context: The context of the tool call, containing session state.
+
+    Returns:
+        The diagnosis text from the server, or an error message.
+    """
+    logging.info("Attempting to diagnose plant from video feed.")
+    image_bytes = tool_context._invocation_context.session.state.get('latest_image_bytes')
+
+    if not image_bytes:
+        logging.warning("Diagnose tool called, but no image was found in the session context.")
+        return "I am sorry, I could not see an image to diagnose. Please ensure your video is active."
+
+    # Create a unique filename for the temporary image
+    temp_dir = "static/uploads"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    temp_filename = f"{uuid.uuid4()}.jpg"
+    temp_filepath = os.path.join(temp_dir, temp_filename)
+
+    try:
+        # Save the image bytes to the temporary file
+        with open(temp_filepath, 'wb') as f:
+            f.write(image_bytes)
+        logging.info(f"Saved latest video frame to temporary file: {temp_filepath}")
+
+        # Call the diagnosis function with the new image path
+        diagnosis = await diagnose_plant_from_huggingface(temp_filepath)
+        return diagnosis if diagnosis else "Failed to get a diagnosis."
+
+    except Exception as e:
+        logging.error(f"Error saving or diagnosing image from video feed: {e}", exc_info=True)
+        return "I encountered an error while processing the image from the video feed."
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+            logging.info(f"Removed temporary file: {temp_filepath}")
 
 async def diagnose_plant_from_huggingface(image_path_on_server: str) -> str | None:
     """
