@@ -50,6 +50,7 @@ from proactive_agents import (
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
+from tools.aura_client import diagnose_plant_from_video_feed
 from tools.chart_tool import generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart, generate_grouped_bar_chart # UPDATED IMPORT
 from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, get_publication_trend
@@ -80,8 +81,9 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 2.  **Memory Recall (If explicitly asked):**
     *   If the user asks you to "remember" something, asks "what do you know about me?", or refers to a past conversation beyond the immediate recent turns, you **MUST** use the `DeepMemoryRecallAgent` to search your long-term memory.
 
-2.  **Visual Scene Analysis (Multimodal Perception)**:
+3.  **Visual Scene Analysis (Multimodal Perception)**:
     *   Analyze incoming video frames to identify relevant objects ('seen_items') and infer context ('initial_context_keywords').
+    *   **Plant Diagnosis**: If you identify a plant in the video feed, you can proactively ask the user if they would like a health diagnosis. If they agree, or if they ask you to "diagnose the plant" or a similar query, you **MUST** use the `diagnose_plant_from_video_feed` tool.
 
 3.  **Emotional Context Analysis (If video/audio is active):**
     *   You **MUST** call the `EmotionalSynthesizerAgent` tool. **Crucially, you must pass it the user's transcribed text.** Example: `EmotionalSynthesizerAgent(transcribed_text="I'm doing great today.")`. This tool analyzes facial expressions, vocal tone, and the provided text to create an overall emotional context.
@@ -906,7 +908,7 @@ def create_streaming_agent_with_mcp_tools(
         ],
        "after_model_callback": save_interaction_after_model_callback,
     }
-    all_root_agent_tools: List[Any] = []
+    all_root_agent_tools: List[Any] = [diagnose_plant_from_video_feed]
 
     if loaded_mcp_toolsets:
         all_root_agent_tools.extend(loaded_mcp_toolsets)
