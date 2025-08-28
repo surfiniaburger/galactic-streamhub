@@ -61,7 +61,7 @@ from google.adk.agents import SequentialAgent
 from ingest_clinical_trials import query_clinical_trials_from_mongodb, ingest_clinical_trial_record
 from ingest_multimodal_data import find_similar_images
 
-MODEL_ID_STREAMING = "gemini-2.0-flash-live-preview-04-09" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp"
+MODEL_ID_STREAMING = "gemini-live-2.5-flash-preview" # Or your preferred streaming-compatible model like "gemini-2.0-flash-exp" or gemini-live-2.5-flash-preview
 GEMINI_PRO_MODEL_ID = "gemini-2.5-flash"
 GEMINI_MULTIMODAL_MODEL_ID = MODEL_ID_STREAMING # Alias for clarity
 
