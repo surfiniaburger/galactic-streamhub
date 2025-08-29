@@ -908,7 +908,7 @@ def create_streaming_agent_with_mcp_tools(
         ],
        "after_model_callback": save_interaction_after_model_callback,
     }
-    all_root_agent_tools: List[Any] = [diagnose_plant_from_video_feed]
+    all_root_agent_tools: List[Any] = []
 
     if loaded_mcp_toolsets:
         all_root_agent_tools.extend(loaded_mcp_toolsets)

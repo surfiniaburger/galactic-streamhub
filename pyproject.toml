@@ -7,7 +7,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
     "fastapi>=0.115.12",
     "geopy>=2.4.1",
-    "google-adk>=1.6.0",
+    "google-adk>=1.13.0",
     "google-generativeai>=0.8.5",
     "google-cloud>=0.34.0",
     "mcp>=1.6.0",
@@ -24,7 +24,7 @@ dependencies = [
     "pydicom >= 3.0.1",
     "google-cloud-speech>=2.33.0",
     "google-cloud-language>=2.17.2",
-    "google-adk[eval]>=1.6.0",
+    "google-adk[eval]>=1.13.0",
     "deepface>=0.0.93",
     "tensorflow>=2.19.0",
     "transformers>=4.53.2",
@@ -37,4 +37,6 @@ dependencies = [
     "torch>=2.7.1",
     "google-cloud-modelarmor>=0.2.6",
     "gradio-client>=1.12.1",
+    "jsonschema==4.22.0",
+    "referencing==0.35.1",
 ]
