@@ -34,6 +34,7 @@ dependencies = [
     { name = "google-cloud-texttospeech" },
     { name = "google-cloud-vision" },
     { name = "google-generativeai" },
+    { name = "gradio-client" },
     { name = "keras" },
     { name = "matplotlib" },
     { name = "mcp" },
@@ -69,6 +70,7 @@ requires-dist = [
     { name = "google-cloud-texttospeech", specifier = ">=2.27.0" },
     { name = "google-cloud-vision", specifier = ">=3.10.2" },
     { name = "google-generativeai", specifier = ">=0.8.5" },
+    { name = "gradio-client", specifier = ">=1.12.1" },
     { name = "keras", specifier = ">=3.10.0" },
     { name = "matplotlib", specifier = ">=3.10.3" },
     { name = "mcp", specifier = ">=1.6.0" },
@@ -1266,6 +1268,23 @@ wheels = [
 [package.optional-dependencies]
 grpc = [
     { name = "grpcio" },
+]
+
+[[package]]
+name = "gradio-client"
+version = "1.12.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "fsspec" },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
+    { name = "packaging" },
+    { name = "typing-extensions" },
+    { name = "websockets" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6f/67/b3a7cba3ec31eb00c6fcb4d6df6cce94dd9a4fbc5ae3eb9b20f18e1c1040/gradio_client-1.12.1.tar.gz", hash = "sha256:64ae7b1d951482194e3a2f8d20cd3fbdaaa13418ee988445d3c9edb28da50ea2", size = 322580, upload-time = "2025-08-19T20:25:44.668Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/95/e248cabea8c5b1eaa69c0e4742e4d4cbb3708272670917daf8eef2f78aa1/gradio_client-1.12.1-py3-none-any.whl", hash = "sha256:37c0bcd0e6b3794b2b2e0b5039696d6962d8125bdb96960ad1b79412326b1664", size = 324611, upload-time = "2025-08-19T20:25:42.933Z" },
 ]
 
 [[package]]

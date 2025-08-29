@@ -13,7 +13,7 @@ Welcome to the Galactic StreamHub, powered by AVA (Advanced Visual Assistant)! T
 **[https://medium.com/@James_Masciano/ava-building-a-glimpse-of-i-o-2025s-agentic-multimodal-future-with-google-s-adk-for-bddbaac17d3c]** 
 
 
-![Galactic StreamHub UI](/assets/ui.png)
+![Galactic StreamHub UI](/assets/aura-and-ava.jpeg)
 
 ## Table of Contents
 
