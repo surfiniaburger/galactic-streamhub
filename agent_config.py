@@ -1274,6 +1274,9 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
     all_root_agent_tools.append(ingestion_router_agent_tool)
     logging.info(f"IngestionRouterAgent wrapped as AgentTool ('{ingestion_router_agent_tool.name}') and added to Root Agent's tools.")
 
+    all_root_agent_tools.append(diagnose_plant_from_video_feed)
+    logging.info(f"DiagnosePlantFromVideoFeed wrapped as AgentTool ('{diagnose_plant_from_video_feed.name}') and added to Root Agent's tools.")
+
     # Agent A: The Narrative Writer
     text_synthesizer_agent = LlmAgent(
         model=GEMINI_PRO_MODEL_ID,
