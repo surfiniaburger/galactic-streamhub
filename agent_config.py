@@ -1,5 +1,4 @@
 # /Users/surfiniaburger/Desktop/app/agent_config.py
-from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.parallel_agent import ParallelAgent # New Import
 from typing import Any, Dict, List
 import logging
@@ -50,7 +49,7 @@ from proactive_agents import (
 # Import the Google Search Agent
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
-from tools.aura_client import diagnose_plant_from_video_feed
+from tools.aura_client import diagnose_plant_tool
 from tools.chart_tool import generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart, generate_grouped_bar_chart # UPDATED IMPORT
 from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, get_publication_trend
@@ -83,7 +82,7 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 
 3.  **Visual Scene Analysis (Multimodal Perception)**:
     *   Analyze incoming video frames to identify relevant objects ('seen_items') and infer context ('initial_context_keywords').
-    *   **Plant Diagnosis**: If you identify a plant in the video feed, you can proactively ask the user if they would like a health diagnosis. If they agree, or if they ask you to "diagnose the plant" or a similar query, you **MUST** use the `diagnose_plant_from_video_feed` tool.
+    *   **Plant Diagnosis**: If you identify a plant in the video feed, you can proactively ask the user if they would like a health diagnosis. If they agree, or if they ask you to "diagnose the plant" or a similar query, you **MUST** use the `PlantDiagnosisAgent` tool.
 
 3.  **Emotional Context Analysis (If video/audio is active):**
     *   You **MUST** call the `EmotionalSynthesizerAgent` tool. **Crucially, you must pass it the user's transcribed text.** Example: `EmotionalSynthesizerAgent(transcribed_text="I'm doing great today.")`. This tool analyzes facial expressions, vocal tone, and the provided text to create an overall emotional context.
@@ -145,7 +144,12 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
         2.  Then, you **MUST** call the `CognitiveAssistanceOrchestratorAgent` to perform the simplification.
     *   The direct output from the `CognitiveAssistanceOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
 
-15. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+15. **Delegation for Plant Diagnosis**:
+    *   **IF** the user asks you to diagnose a plant (e.g., "can you diagnose this plant?", "what's wrong with my plant?"):
+        1.  You **MUST** call the `PlantDiagnosisAgent` to perform the diagnosis.
+    *   The direct output from the `PlantDiagnosisAgent` will be your final answer to the user. Do not modify or add to it.
+
+16. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
 
 
@@ -891,7 +895,9 @@ You are a specialized dispatcher for accessibility requests. Your job is to anal
 You must call one, and only one, of these two specialist agents based on the user's intent. Pass the user's original request to the chosen agent.
 """
 
-
+PLANT_DIAGNOSIS_AGENT_INSTRUCTION = '''
+You are a plant diagnosis agent. When asked to diagnose a plant, you must use the `diagnose_plant_tool`.
+'''
 
 def create_streaming_agent_with_mcp_tools(
     loaded_mcp_toolsets: List[MCPToolset],
@@ -1274,8 +1280,21 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
     all_root_agent_tools.append(ingestion_router_agent_tool)
     logging.info(f"IngestionRouterAgent wrapped as AgentTool ('{ingestion_router_agent_tool.name}') and added to Root Agent's tools.")
 
-    all_root_agent_tools.append(diagnose_plant_from_video_feed)
-    logging.info(f"DiagnosePlantFromVideoFeed wrapped as AgentTool ('{diagnose_plant_from_video_feed.name}') and added to Root Agent's tools.")
+    plant_diagnosis_agent = LlmAgent(
+    name="PlantDiagnosisAgent",
+    instruction=PLANT_DIAGNOSIS_AGENT_INSTRUCTION,
+    description="An agent that can diagnose plant health from an image.",
+    tools=[diagnose_plant_tool],
+    model="gemini-2.5-flash",
+    **shared_callbacks 
+    )
+
+    plant_diagnosis_agent_tool = AgentTool(agent=plant_diagnosis_agent)
+    if hasattr(plant_diagnosis_agent_tool, 'run_async'):
+       plant_diagnosis_agent_tool.func = plant_diagnosis_agent_tool.run_async
+
+    all_root_agent_tools.append(plant_diagnosis_agent_tool)
+    logging.info(f"PlantDiagnosisAgent wrapped as AgentTool ('{plant_diagnosis_agent_tool.name}') and added to Root Agent's tools.")
 
     # Agent A: The Narrative Writer
     text_synthesizer_agent = LlmAgent(
