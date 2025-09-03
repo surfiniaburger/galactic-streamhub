@@ -37,6 +37,10 @@ dependencies = [
     "torch>=2.7.1",
     "google-cloud-modelarmor>=0.2.6",
     "gradio-client>=1.12.1",
-    "jsonschema==4.22.0",
+    "jsonschema==4.23.0",
     "referencing==0.35.1",
+    "wandb>=0.21.3",
+    "weave>=0.52.5",
+    "opentelemetry-sdk>=1.36.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.36.0",
 ]

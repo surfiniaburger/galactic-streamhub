@@ -4,55 +4,10 @@ import logging
 import asyncio
 import uuid
 from gradio_client import Client, handle_file
-from google.adk.tools.tool_context import ToolContext
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-async def diagnose_plant_from_video_feed(tool_context: ToolContext) -> str:
-    """
-    Retrieves the latest video frame from the session, saves it as a temporary file,
-    and sends it for diagnosis.
-
-    Args:
-        tool_context: The context of the tool call, containing session state.
-
-    Returns:
-        The diagnosis text from the server, or an error message.
-    """
-    logging.info("Attempting to diagnose plant from video feed.")
-    image_bytes = tool_context._invocation_context.session.state.get('latest_image_bytes')
-
-    if not image_bytes:
-        logging.warning("Diagnose tool called, but no image was found in the session context.")
-        return "I am sorry, I could not see an image to diagnose. Please ensure your video is active."
-
-    # Create a unique filename for the temporary image
-    temp_dir = "static/uploads"
-    if not os.path.exists(temp_dir):
-        os.makedirs(temp_dir)
-
-    temp_filename = f"{uuid.uuid4()}.jpg"
-    temp_filepath = os.path.join(temp_dir, temp_filename)
-
-    try:
-        # Save the image bytes to the temporary file
-        with open(temp_filepath, 'wb') as f:
-            f.write(image_bytes)
-        logging.info(f"Saved latest video frame to temporary file: {temp_filepath}")
-
-        # Call the diagnosis function with the new image path
-        diagnosis = await diagnose_plant_from_huggingface(temp_filepath)
-        return diagnosis if diagnosis else "Failed to get a diagnosis."
-
-    except Exception as e:
-        logging.error(f"Error saving or diagnosing image from video feed: {e}", exc_info=True)
-        return "I encountered an error while processing the image from the video feed."
-    finally:
-        # Clean up the temporary file
-        if os.path.exists(temp_filepath):
-            os.remove(temp_filepath)
-            logging.info(f"Removed temporary file: {temp_filepath}")
 
 async def diagnose_plant_from_huggingface(image_path_on_server: str) -> str | None:
     """
@@ -112,24 +67,51 @@ async def diagnose_plant_from_huggingface(image_path_on_server: str) -> str | No
     # Run the blocking function in a separate thread to avoid blocking the main asyncio event loop.
     return await asyncio.to_thread(blocking_gradio_call)
 
-if __name__ == '__main__':
-    # This is a placeholder for a real image file path
-    # In your app, this path would come from a user upload
-    example_image_path = "sample_images/healthy_maize_test_1.jpg"
 
-    # Create a dummy image file for testing if it doesn't exist
-    if not os.path.exists(example_image_path):
-        from PIL import Image
-        print("Creating a dummy image for demonstration.")
-        dummy_image_dir = os.path.dirname(example_image_path)
-        if not os.path.exists(dummy_image_dir):
-            os.makedirs(dummy_image_dir)
-        dummy_image = Image.new('RGB', (100, 100), color = 'green')
-        dummy_image.save(example_image_path)
+async def diagnose_plant_tool(tool_context: ToolContext) -> str:
+    """
+    Retrieves the latest video frame from the session, saves it as a temporary file,
+    and sends it for diagnosis.
 
-    diagnosis = asyncio.run(diagnose_plant_from_huggingface(example_image_path))
-    if diagnosis:
-        print("\n--- Diagnosis ---")
-        print(diagnosis)
-    else:
-        print("\nFailed to get a diagnosis.")
+    Args:
+        tool_context: The context of the tool call, containing session state.
+
+    Returns:
+        The diagnosis text from the server, or an error message.
+    """
+    logging.info("Attempting to diagnose plant from video feed.")
+    image_bytes = tool_context._invocation_context.session.state.get('latest_image_bytes')
+
+    if not image_bytes:
+        logging.warning("Diagnose tool called, but no image was found in the session context.")
+        return "I am sorry, I could not see an image to diagnose. Please ensure your video is active."
+
+    # Create a unique filename for the temporary image
+    temp_dir = "static/uploads"
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+
+    temp_filename = f"{uuid.uuid4()}.jpg"
+    temp_filepath = os.path.join(temp_dir, temp_filename)
+
+    try:
+        # Save the image bytes to the temporary file
+        with open(temp_filepath, 'wb') as f:
+            f.write(image_bytes)
+        logging.info(f"Saved latest video frame to temporary file: {temp_filepath}")
+
+        # Call the diagnosis function with the new image path
+        diagnosis = await diagnose_plant_from_huggingface(temp_filepath)
+        return diagnosis if diagnosis else "Failed to get a diagnosis."
+
+    except Exception as e:
+        logging.error(f"Error saving or diagnosing image from video feed: {e}", exc_info=True)
+        return "I encountered an error while processing the image from the video feed."
+    finally:
+        # Clean up the temporary file
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+            logging.info(f"Removed temporary file: {temp_filepath}")
+
+
+
