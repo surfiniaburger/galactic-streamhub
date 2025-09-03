@@ -1,54 +1,66 @@
 # main.py
 
-import io
 import os
-import json
-import asyncio
 import base64
-import contextlib
-import certifi # type: ignore
 import logging
-from pathlib import Path
-from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Tuple, Optional
-
-from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.sdk import trace as trace_sdk
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry import trace
 from dotenv import load_dotenv
 
-from google.adk.agents.llm_agent import LlmAgent
-
+# --- OpenTelemetry/Weave Configuration (MUST RUN BEFORE ANY ADK IMPORTS) ---
 load_dotenv()
 
 # Configure Weave endpoint and authentication
-WANDB_BASE_URL = "https://trace.wandb.ai"
-PROJECT_ID = "jdmasciano2-university-of-lagos/galactic-streamhub"  # e.g., "teamid/projectid"
+WANDB_BASE_URL = os.getenv("WANDB_BASE_URL", "https://trace.wandb.ai")
+# Ensure PROJECT_ID is correctly formatted: "entity/project"
+PROJECT_ID = os.getenv("WANDB_PROJECT_ID", "jdmasciano2-university-of-lagos/galactic-streamhub")
 OTEL_EXPORTER_OTLP_ENDPOINT = f"{WANDB_BASE_URL}/otel/v1/traces"
 
 # Set up authentication
 WANDB_API_KEY = os.getenv("WANDB_API_KEY")
-AUTH = base64.b64encode(f"api:{WANDB_API_KEY}".encode()).decode()
+if WANDB_API_KEY and PROJECT_ID:
+    try:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.sdk import trace as trace_sdk
+        from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+        from opentelemetry import trace
 
-OTEL_EXPORTER_OTLP_HEADERS = {
-    "Authorization": f"Basic {AUTH}",
-    "project_id": PROJECT_ID,
-}
+        AUTH = base64.b64encode(f"api:{WANDB_API_KEY}".encode()).decode()
 
-# Create the OTLP span exporter with endpoint and headers
-exporter = OTLPSpanExporter(
-    endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
-    headers=OTEL_EXPORTER_OTLP_HEADERS,
-)
+        OTEL_EXPORTER_OTLP_HEADERS = {
+            "Authorization": f"Basic {AUTH}",
+            "project_id": PROJECT_ID,
+        }
 
-# Create a tracer provider and add the exporter
-tracer_provider = trace_sdk.TracerProvider()
-tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
+        # Create the OTLP span exporter with endpoint and headers
+        exporter = OTLPSpanExporter(
+            endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
+            headers=OTEL_EXPORTER_OTLP_HEADERS,
+        )
 
-# Set the global tracer provider BEFORE importing/using ADK
-trace.set_tracer_provider(tracer_provider)
+        # Create a tracer provider and add the exporter
+        tracer_provider = trace_sdk.TracerProvider()
+        tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
 
+        # Set the global tracer provider BEFORE importing/using ADK
+        trace.set_tracer_provider(tracer_provider)
+        logging.info("OpenTelemetry tracing for W&B Weave configured successfully.")
+    except ImportError:
+        logging.warning("OpenTelemetry packages not found. Tracing will be disabled.")
+    except Exception as e:
+        logging.error(f"Failed to configure OpenTelemetry tracing: {e}")
+else:
+    logging.warning("WANDB_API_KEY or WANDB_PROJECT_ID not found in environment. Tracing will be disabled.")
+
+
+import io
+import json
+import asyncio
+import contextlib
+import certifi # type: ignore
+from pathlib import Path
+from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Tuple, Optional
+
+from google.adk.agents.llm_agent import LlmAgent
 
 from fastapi import FastAPI, Response, WebSocket, Query
 from fastapi.staticfiles import StaticFiles
@@ -64,7 +76,7 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from mongo_memory import MongoMemory
 from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionParams
 
-from google.cloud import secretmanager 
+from google.cloud import secretmanager
 
 import pydicom
 import numpy as np
@@ -83,9 +95,8 @@ from firebase_admin import credentials, auth
 #from main_agent.agent import create_streaming_agent_with_mcp_tools
 from shared_state import transient_data_store
 from agent_config import create_streaming_agent_with_mcp_tools
-from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT 
+from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT
 # --- Configuration & Global Setup ---
-load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 APP_NAME = "ADK MCP Streaming App"
@@ -159,7 +170,7 @@ async def _collect_tools_stack(
                     logging.info(f"Sample MCPTool: {sample_tool}, type: {type(sample_tool)}")
                     logging.info(f"Is callable: {callable(sample_tool)}")
                     logging.info(f"Attributes: {dir(sample_tool)}")
-                    if hasattr(sample_tool, 'execute'): 
+                    if hasattr(sample_tool, 'execute'):
                         logging.info("Has 'execute' method")
                     all_tools[key] = tools_list # Store the list of tools
                     logging.info(f"Successfully collected {len(tools_list)} tools for MCP server: {key}")
@@ -174,7 +185,7 @@ async def _collect_tools_stack(
                 logging.error(f"TypeError during MCP toolset setup for key '{key}': {te}. This might indicate an issue with MCPToolset.from_server's return value or usage.", exc_info=True)
             except Exception as e:
                 logging.error(f"Failed to initialize MCP toolset for key '{key}': {e}", exc_info=True)
-        
+
         if not all_tools:
             logging.warning("No tools were collected from any MCP server.")
 
@@ -262,7 +273,7 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
 
     # Store toolsets on the app's state for access in endpoints
     app_instance.state.mcp_toolsets = []
-    
+
     logging.info("Application Lifespan: Creating MCPToolsets.")
     for key, server_params in current_server_configs.items():
         try:
@@ -272,7 +283,7 @@ async def app_lifespan(app_instance: FastAPI) -> Any:
             logging.info(f"MCPToolset instance created for key: {key}")
         except Exception as e:
             logging.error(f"Failed to create MCPToolset for key '{key}': {e}", exc_info=True)
-    
+
     if app_instance.state.mcp_toolsets:
         logging.info(f"Application Lifespan: {len(app_instance.state.mcp_toolsets)} MCPToolset(s) created.")
     else:
@@ -303,10 +314,10 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
 
     # Get the list of MCPToolset instances and any other tools
     mcp_toolsets_from_state = getattr(app_state, 'mcp_toolsets', [])
-    
+
     # Your agent_config.py will now receive these MCPToolsets
     # It also needs to know about the TaskExecutionAgentTool
-    
+
     # --- This is where agent_config.py is called ---
     # We need to adjust what create_streaming_agent_with_mcp_tools expects.
     # Instead of a dict of tool lists, it will now get a list of MCPToolset objects.
@@ -328,14 +339,14 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         app_name=APP_NAME,
         agent=agent_instance,
         memory_service=mongo_memory_service, # Pass the persistent memory service
-        session_service=session_service, 
-       
+        session_service=session_service,
+
     )
 
     modality = "AUDIO" if is_audio else "TEXT"
     # Initialize parameters for RunConfig
     run_config_args = {
-        "response_modalities": [modality] 
+        "response_modalities": [modality]
         # Other defaults like 'save_input_blobs_as_artifacts': False, 'support_cfc': False will apply
     }
 
@@ -343,14 +354,14 @@ async def start_agent_session(session_id: str, app_state: Any, is_audio: bool = 
         # Enable output audio transcription when in audio mode
         # The Vertex AI docs show this as an empty dict {} or a specific config object.
         # Let's try with an empty dict first, which usually means "enable with defaults".
-        run_config_args["output_audio_transcription"] = {} 
+        run_config_args["output_audio_transcription"] = {}
         logging.info(f"Session {session_id}: Enabling output_audio_transcription for audio mode.")
 
         # Optionally, if you also want to transcribe the user's input audio:
         run_config_args["input_audio_transcription"] = {}
 
         # Enable sound recognition
-        
+
         logging.info(f"Session {session_id}: Enabling sound recognition for audio mode.")
 
         # Optionally, if you want to configure the voice (example from ADK docs):
@@ -407,7 +418,7 @@ async def agent_to_client_messaging(websocket: WebSocket, live_events, session_i
                     await websocket.send_text(json.dumps(message))
                     logging.debug(f"[S:{session_id} AGENT TO CLIENT]: {part.inline_data.mime_type}: {len(audio_data)} bytes.")
                     continue
-            
+
             if hasattr(event, 'sound_event') and event.sound_event:
                 if 'sound_events' not in session.state:
                     session.state['sound_events'] = []
@@ -480,7 +491,7 @@ async def client_to_agent_messaging(websocket: WebSocket, live_request_queue: Li
                     logging.debug(f"[S:{session_id} CLIENT TO AGENT]: {mime_type} frame: {len(decoded_image_data)} bytes.")
                 except Exception as e:
                     logging.error(f"Error processing image data for session {session_id}: {e}", exc_info=True)
-            # --- End of Video Frame Handling ---                
+            # --- End of Video Frame Handling ---
             else:
                 logging.warning(f"Mime type not supported for session {session_id}: {mime_type}")
                 # Optionally send an error message back to client
@@ -518,7 +529,7 @@ async def websocket_endpoint(
         await websocket.close(code=1011)
         return
 
-    # If verification succeeds, proceed with the connection.    
+    # If verification succeeds, proceed with the connection.
     await websocket.accept()
     actual_is_audio = is_audio.lower() == "true"
     logging.info(f"Client #{uid} connected via WebSocket, audio mode: {actual_is_audio}")
@@ -535,7 +546,7 @@ async def websocket_endpoint(
         # If you expect specific toolsets, you'd need a more robust check here or
         # rely on the logging during app_lifespan.
         # A simple check that toolsets list exists and is a list:
-        mcp_toolsets_initialized_correctly = True 
+        mcp_toolsets_initialized_correctly = True
         if not app_state.mcp_toolsets: # If list is empty, but you expect toolsets
              logging.warning(f"MCPToolsets list is empty for session {uid}, though app_state.mcp_toolsets exists.")
              # You might still consider this an error state depending on your app's requirements
@@ -547,9 +558,9 @@ async def websocket_endpoint(
         try:
             await websocket.send_text(error_message)
         except WebSocketDisconnect:
-            pass 
+            pass
         finally:
-            await websocket.close(code=1011) 
+            await websocket.close(code=1011)
         return
     # --- END UPDATED CHECK ---
 
@@ -600,10 +611,10 @@ async def websocket_endpoint(
             task.cancel()
         if tasks_to_cancel:
             await asyncio.gather(*tasks_to_cancel, return_exceptions=True)
-        
+
         if live_request_queue:
             live_request_queue.close() # Ensure queue is closed
-        
+
         # Clean up the transient data store for this session
         transient_data_store.pop(uid, None)
 
@@ -646,14 +657,14 @@ async def serve_medical_image(series_uid: str, image_filename: str):
         pixels = dicom_data.pixel_array.astype(float)
         pixels_scaled = (np.maximum(pixels, 0) / pixels.max()) * 255.0
         image_array = pixels_scaled.astype(np.uint8)
-        
+
         pil_image = Image.fromarray(image_array)
-        
+
         # Save the PNG to an in-memory byte buffer
         img_io = io.BytesIO()
         pil_image.save(img_io, 'PNG')
         img_io.seek(0)
-        
+
         # Use StreamingResponse for sending image data
         return StreamingResponse(img_io, media_type="image/png")
 
@@ -680,3 +691,22 @@ async def root():
 # Ensure mcp_server/cocktail.py and mcp_server/weather_server.py are present and executable.
 # If using Airbnb MCP server, ensure it's running separately or configure its management.
 # Command: uvicorn main:app --reload
+
+# --- NEW: Endpoint to provide Google Maps API Key to the frontend ---
+@app.get("/api/maps-key")
+async def get_maps_api_key():
+    """
+    Provides the Google Maps API key to the frontend.
+    The key is fetched from the environment variable at startup.
+    """
+    api_key = os.environ.get("GOOGLE_MAPS_API_KEY")
+    if api_key:
+        return {"apiKey": api_key}
+    else:
+        # Return an error or an empty key if not found
+        return Response(status_code=404, content="API key not configured on the server.")
+
+@app.get("/api/user-guide")
+async def get_user_guide():
+    """Serves the user_guide.html from the static directory"""
+    return FileResponse(os.path.join(STATIC_DIR, "user_guide.html"))
