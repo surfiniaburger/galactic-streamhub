@@ -50,6 +50,7 @@ from proactive_agents import (
 from google_search_agent.agent import root_agent as google_search_agent_instance
 # Import the PubMed query function directly
 from tools.aura_client import diagnose_plant_tool
+from tools.nanobana_tool import generate_image_with_nanobana
 from tools.chart_tool import generate_simple_bar_chart, generate_simple_line_chart, generate_pie_chart, generate_grouped_bar_chart # UPDATED IMPORT
 from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, get_publication_trend
@@ -149,7 +150,11 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
         1.  You **MUST** call the `PlantDiagnosisAgent` to perform the diagnosis.
     *   The direct output from the `PlantDiagnosisAgent` will be your final answer to the user. Do not modify or add to it.
 
-16. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
+16. **Delegation for Image Generation**:
+    *   **IF** the user asks to "generate an image", "create a picture of", or other similar creative requests, you **MUST** delegate the task to the `ImageGenerationAgent`.
+    *   The direct output from the `ImageGenerationAgent` will be the URL of the newly created image. You should present this to the user, for example, by saying "Here is the image I created for you:" followed by the URL.
+
+17. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
 
 
@@ -899,6 +904,15 @@ PLANT_DIAGNOSIS_AGENT_INSTRUCTION = '''
 You are a plant diagnosis agent. When asked to diagnose a plant, you must use the `diagnose_plant_tool`.
 '''
 
+IMAGE_GENERATION_AGENT_INSTRUCTION = """
+You are a specialized Image Generation Agent. Your sole purpose is to take a user's text prompt and use the `generate_image_with_nanobana` tool to create an image.
+
+**--- Core Workflow ---**
+1.  Take the user's request which is a text description of an image.
+2.  Call the `generate_image_with_nanobana` tool with the user's prompt.
+3.  Return ONLY the URL of the generated image. Do not add any conversational text or acknowledgements.
+"""
+
 def create_streaming_agent_with_mcp_tools(
     loaded_mcp_toolsets: List[MCPToolset],
     #raw_mcp_tools_lookup_for_warnings: Dict[str, Any] # No longer strictly needed here
@@ -1295,6 +1309,21 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
 
     all_root_agent_tools.append(plant_diagnosis_agent_tool)
     logging.info(f"PlantDiagnosisAgent wrapped as AgentTool ('{plant_diagnosis_agent_tool.name}') and added to Root Agent's tools.")
+
+    image_generation_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ImageGenerationAgent",
+        instruction=IMAGE_GENERATION_AGENT_INSTRUCTION,
+        tools=[generate_image_with_nanobana],
+        **shared_callbacks
+    )
+    logging.info(f"ImageGenerationAgent instance created: {image_generation_agent.name}")
+
+    image_generation_agent_tool = AgentTool(agent=image_generation_agent)
+    if hasattr(image_generation_agent_tool, 'run_async'):
+        image_generation_agent_tool.func = image_generation_agent_tool.run_async
+    all_root_agent_tools.append(image_generation_agent_tool)
+    logging.info("ImageGenerationAgent wrapped as a tool and added to Root Agent's tools.")
 
     # Agent A: The Narrative Writer
     text_synthesizer_agent = LlmAgent(
