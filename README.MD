@@ -478,4 +478,3 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 *   Vanta.js for the cool animated background.
 *   Participants and organizers of the #adkhackathon.
 
-The lord is my strength.
