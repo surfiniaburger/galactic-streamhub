@@ -18,9 +18,9 @@ import asyncio
 # Import the transient data store from the new shared_state module
 from shared_state import transient_data_store
 
-#from tools.web_utils import fetch_web_article_text_tool 
+#from tools.web_utils import fetch_web_article_text_tool
 # Import your callback functions and mongo_memory_service instance
-from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent
+from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent, LlmAgent
 from google.adk.events import Event, EventActions
 from google.adk.planners import BuiltInPlanner
 from typing import Any, Dict, List, Optional, Literal, AsyncGenerator
@@ -56,6 +56,7 @@ from clinical_trials_pipeline import query_clinical_trials_data # New Import
 from pubmed_pipeline import query_pubmed_articles, get_publication_trend
 from pubmed_pipeline import ingest_single_article_data as ingest_pubmed_article
 from openfda_pipeline import query_drug_adverse_events # New Import for OpenFDA
+from tools.dipg_client import dipg_knowledge_base_tool
 from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.tool_context import ToolContext # NEW IMPORT
 from google.adk.agents import SequentialAgent
@@ -118,18 +119,23 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 
 8.  **Delegation to `MasterResearchSynthesizer`**:
     *   If the user's query is clearly involves clinical trials (e.g., "what's the latest on..."), delegate the task to the `MasterResearchSynthesizer` tool.
-
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `MasterResearchSynthesizer` tool returns a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
-10.  **FOR ALL OTHER** research queries  (e.g., "what's the latest on...",  "find papers on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `DeepResearchAgent`.  
+
+9.  **Delegation to `DIPGMasterAgent` (NEW):**
+    *   If the user's query is about DIPG, H3K27M, or related pediatric brain tumors, you **MUST** delegate the task to the `DIPGMasterAgent` tool.
+    *   Pass the user's full question to this agent.
+    *   The direct output from the `DIPGMasterAgent` will be your final, complete answer to the user. Do not modify or add to it.
+
+10. **FOR ALL OTHER** research queries  (e.g., "what's the latest on...",  "find papers on...", "tell me about carrots", "is strawberry good for diabetes"), you **MUST** call the `DeepResearchAgent`.
     *   **IMPORTANT - PASS-THROUGH RESPONSE**: When the `DeepResearchAgent` tool return a response, you MUST treat it as the final, complete answer for the user. **Your job is to pass this response directly to the user without any changes, summarization, or additional commentary.** Do not rephrase it or add your own thoughts.
 
-11.  **Handling Ingestion Confirmation for Deep Dive Results:**
+11. **Handling Ingestion Confirmation for Deep Dive Results:**
     *   If your last response to the user (likely from the `MasterResearchSynthesizer` via the `DeepDiveReportAgent`) included a question about ingesting additional findings (e.g., "Would you like to attempt to ingest them into our database?"), and the user's current response is affirmative (e.g., "yes", "please ingest them", "proceed with ingestion"):
         1. You MUST call the `BulkIngestionProcessorAgent` tool. Pass an empty request or a simple instruction like 'Process pending ingestion items' as the request argument to the tool (e.g., `BulkIngestionProcessorAgent(request='Process pending ingestion items')`).
         2. The output from `BulkIngestionProcessorAgent` will be your response to the user.
     *   If the user declines or asks something else, proceed with your normal conversational flow
 
-12.  ** Delegation for Accessibility**:
+12. **Delegation for Accessibility**:
     *   **IF** the user's request is clearly for accessibility assistance (e.g., "describe what you see", "what's in front of me?", "can you read this for me?", "what does this label say?"), you **MUST** delegate the task to the `AccessibilityOrchestratorAgent` tool.
     *   **Crucially**, before calling the tool, ensure you have populated `ctx.session.state['input_seen_items']` based on your visual analysis.
     *   The direct output from the `AccessibilityOrchestratorAgent` will be your final answer to the user. Do not modify or add to it.
@@ -159,6 +165,61 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
+"""
+
+# --- NEW: Instruction for the DIPG RAG Synthesizer Agent ---
+DIPG_SYNTHESIZER_INSTRUCTION = """
+You are a compassionate and clear-spoken medical information assistant. Your final task is to synthesize the results of a research process and present a final answer to the user.
+
+You will have the following information available in the session state:
+- `initial_dipg_answer`: The first answer retrieved from our specialized DIPG knowledge base.
+- `confidence_assessment`: A JSON object like `{"confidence": "high"}` or `{"confidence": "low"}`.
+- `web_search_results`: (Only if confidence was low) Additional information retrieved from a web search.
+
+**Your Mandatory Workflow:**
+
+1.  **Check the Confidence Score:** Look at the `confidence_assessment`.
+
+2.  **If Confidence is "high":**
+    *   Your job is simple. Present the `initial_dipg_answer` to the user.
+    *   You can add a brief introductory sentence, for example: "Based on the specialized knowledge base, here is the information I found:"
+
+3.  **If Confidence is "low":**
+    *   This means the initial answer was insufficient or there was an error. You must explain this to the user transparently and then provide the more detailed information from the web search.
+    *   Start by acknowledging the situation, for example: "The specialized knowledge base did not provide a complete answer to your question, so I conducted a broader web search to find more information."
+    *   Then, present a synthesized summary of the `web_search_results`.
+    *   If the `initial_dipg_answer` was an error message, do not show it to the user.
+
+Your final response should be empathetic, clear, and directly address the user's original question using the best available information.
+"""
+
+# --- NEW: Instruction for the Confidence Evaluation Agent ---
+CONFIDENCE_EVALUATOR_INSTRUCTION = """
+You are a meticulous quality assurance analyst. Your sole task is to evaluate an answer provided by a specialized knowledge base tool based on a user's question.
+
+You will be given the original `user_question` and the `tool_answer`.
+
+Your analysis must determine if the `tool_answer` directly and sufficiently addresses the `user_question`.
+
+- If the answer is a direct, complete, and relevant response to the question, your confidence is "high".
+- If the answer is vague, incomplete, only partially relevant, or an error message (e.g., "service unavailable"), your confidence is "low".
+
+Your final output **MUST** be a single, raw JSON object with one key, "confidence", and the value "high" or "low".
+
+**Example 1:**
+- user_question: "What are the latest experimental treatments for H3K27M-mutant DIPG?"
+- tool_answer: "Recent studies show promising results with ONC201, a DRD2 antagonist, which has shown clinical benefit in some H3K27M-mutant glioma patients. Additionally, CAR-T cell therapies targeting GD2 are in early-phase trials."
+- Your Output: `{"confidence": "high"}`
+
+**Example 2:**
+- user_question: "What is the prognosis for children with DIPG?"
+- tool_answer: "DIPG is a type of brain tumor."
+- Your Output: `{"confidence": "low"}`
+
+**Example 3:**
+- user_question: "Are there any surgical options for DIPG?"
+- tool_answer: "Error: The DIPG knowledge base is currently unavailable after 3 attempts."
+- Your Output: `{"confidence": "low"}`
 """
 
 # --- NEW: Instructions for the Emotional Intelligence Suite ---
@@ -206,6 +267,39 @@ class Feedback(BaseModel):
         default=None,
         description="A list of specific, targeted follow-up search queries needed to fix research gaps. This should be null or empty if the grade is 'pass'.",
     )
+
+# --- NEW: Custom Agent for DIPG RAG Workflow ---
+class DIPGConfidenceChecker(BaseAgent):
+    """
+    Checks the confidence score from the ConfidenceEvaluatorAgent.
+    If confidence is 'high', it escalates to stop the sequence.
+    If 'low', it allows the sequence to continue to the web search fallback.
+    """
+    def __init__(self, name: str):
+        super().__init__(name=name)
+
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        confidence_data = ctx.session.state.get("confidence_assessment")
+        logging.info(f"[{self.name}] Checking DIPG confidence. Data: {confidence_data}")
+
+        confidence = "low" # Default to low if something is wrong
+        if isinstance(confidence_data, str):
+            try:
+                # The output from the LLM might be a string of JSON, not a dict
+                confidence_data = json.loads(confidence_data.strip())
+                confidence = confidence_data.get("confidence", "low")
+            except json.JSONDecodeError:
+                logging.warning(f"[{self.name}] Could not parse confidence JSON: {confidence_data}")
+        elif isinstance(confidence_data, dict):
+            confidence = confidence_data.get("confidence", "low")
+
+        if confidence == "high":
+            logging.info(f"[{self.name}] Confidence is HIGH. Escalating to stop RAG workflow.")
+            yield Event(author=self.name, actions=EventActions(escalate=True))
+        else:
+            logging.info(f"[{self.name}] Confidence is LOW. Continuing to web search fallback.")
+            yield Event(author=self.name)
+
 
 # --- Custom Agent for Loop Control in General Research ---
 class EscalationChecker(BaseAgent):
@@ -1777,6 +1871,17 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
     all_root_agent_tools.append(emotional_synthesizer_tool)
     logging.info("EmotionalIntelligenceSuite created and added to Root Agent's tools.")
 
+    # --- NEW: Define the Confidence Evaluation Agent ---
+    confidence_evaluator_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="ConfidenceEvaluatorAgent",
+        instruction=CONFIDENCE_EVALUATOR_INSTRUCTION,
+        description="Evaluates the confidence of an answer from a knowledge base, returning 'high' or 'low'.",
+        output_key="confidence_assessment", # The key to store the agent's output in session state
+        **shared_callbacks
+    )
+    logging.info(f"ConfidenceEvaluatorAgent instance created: {confidence_evaluator_agent.name}")
+
 
     # 3. Create the ProactiveContextOrchestratorAgent instance
     proactive_orchestrator = ProactiveContextOrchestratorAgent(
@@ -1809,6 +1914,64 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
 
     all_root_agent_tools.append(proactive_orchestrator_tool)
     logging.info(f"ProactiveContextOrchestrator wrapped as AgentTool ('{proactive_orchestrator_tool.name}') and added to Root Agent's tools.")
+
+    # --- NEW: Build the DIPG RAG Workflow ---
+
+    # Agent 1: Calls the specialized knowledge base tool
+    dipg_initial_query_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="DIPGInitialQueryAgent",
+        instruction="You are a research assistant. Your only job is to call the `dipg_knowledge_base_tool` with the user's query.",
+        tools=[dipg_knowledge_base_tool],
+        output_key="initial_dipg_answer",
+        **shared_callbacks
+    )
+
+    # Agent 2 is confidence_evaluator_agent, already defined.
+
+    # Agent 3: Checks the confidence and stops if high.
+    dipg_confidence_checker = DIPGConfidenceChecker(name="DIPGConfidenceChecker")
+
+    # Agent 4: The web search fallback (the existing google_search_agent_instance)
+    # We need to wrap it so we can assign an output_key.
+    dipg_web_search_fallback_agent = LlmAgent(
+        model=google_search_agent_instance.model,
+        name="DIPGWebSearchFallbackAgent",
+        instruction=google_search_agent_instance.instruction,
+        tools=google_search_agent_instance.tools,
+        output_key="web_search_results",
+        **shared_callbacks
+    )
+
+    # Agent 5: Synthesizes the final answer.
+    dipg_synthesizer_agent = LlmAgent(
+        model=GEMINI_PRO_MODEL_ID,
+        name="DIPGSynthesizerAgent",
+        instruction=DIPG_SYNTHESIZER_INSTRUCTION,
+        # No tools needed, it just reads from session state.
+        **shared_callbacks
+    )
+
+    # Assemble the sequential workflow
+    dipg_master_agent = SequentialAgent(
+        name="DIPGMasterAgent",
+        description="A specialist agent for answering questions about DIPG. It first consults a specialized knowledge base, evaluates the answer's confidence, and performs a web search as a fallback if needed.",
+        sub_agents=[
+            dipg_initial_query_agent,
+            confidence_evaluator_agent,
+            dipg_confidence_checker,
+            dipg_web_search_fallback_agent,
+            dipg_synthesizer_agent
+        ]
+    )
+
+    # Wrap the master agent as a tool for the root agent
+    dipg_master_agent_tool = AgentTool(agent=dipg_master_agent)
+    if hasattr(dipg_master_agent_tool, 'run_async'):
+       dipg_master_agent_tool.func = dipg_master_agent_tool.run_async
+
+    all_root_agent_tools.append(dipg_master_agent_tool)
+    logging.info("DIPGMasterAgent RAG workflow created and added to Root Agent's tools.")
 
     # 4.5 Wrap ResearchAndVisualizeAgent as a tool for the Root Agent (AVA) to delegate to
 
