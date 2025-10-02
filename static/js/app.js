@@ -1,7 +1,3 @@
-/**
- * app.js: JS code for the Galactic StreamHub app with Firebase Auth.
- */
-
 // --- Firebase Initialization ---
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app.js";
 import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-analytics.js";
@@ -14,38 +10,8 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-auth.js";
 import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com/firebasejs/11.9.0/firebase-app-check.js";
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "",
-  authDomain: "studio-l13dd.firebaseapp.com",
-  projectId: "studio-l13dd",
-  storageBucket: "studio-l13dd.firebasestorage.app",
-  messagingSenderId: "1074728173827",
-  appId: "1:1074728173827:web:004b76b81cf68b38bbe936"
-};
-
-// Initialize Firebase
-const firebaseApp = initializeApp(firebaseConfig);
-// --- NEW: Initialize Firebase App Check with reCAPTCHA v3 ---
-try {
-    const appCheck = initializeAppCheck(firebaseApp, {
-      // IMPORTANT: Replace with your actual reCAPTCHA v3 site key
-      provider: new ReCaptchaV3Provider('6Ld7aWsrAAAAAKlRVXERrU-WniiRyUYsQz9-Ku-1'), 
-      
-      // Set to true to allow automatic token refresh.
-      isTokenAutoRefreshEnabled: true 
-    });
-    console.log("Firebase App Check with reCAPTCHA v3 initialized successfully.");
-  } catch (error) {
-      console.error("Error initializing Firebase App Check:", error);
-      appendLog("Security check initialization failed. Some features may not work.", "system");
-  }
-  // --- END: App Check Initialization ---
-const analytics = getAnalytics(firebaseApp);
-const auth = getAuth(firebaseApp);
-const provider = new GoogleAuthProvider();
-
 // --- Global State ---
+let firebaseApp, analytics, auth, provider; // Will be initialized after config fetch
 let websocket = null;
 let is_audio_mode_active = false;
 let is_video_mode_active = false;
@@ -80,49 +46,93 @@ const userNameSpan = document.getElementById('user-name');
 const userAvatarImg = document.getElementById('user-avatar');
 
 
-// --- Core Authentication Logic ---
+// --- Application Startup and Configuration ---
 
-// The onAuthStateChanged observer is the central point of control.
-onAuthStateChanged(auth, async (user) => {
-    if (user) {
-        // User is signed in
-        console.log("User authenticated:", user.displayName);
-        userNameSpan.textContent = user.displayName;
-        userAvatarImg.src = user.photoURL;
-        userProfileDiv.classList.remove('hidden');
-        loginGate.style.display = 'none'; // Hide login gate
+/**
+ * Fetches all necessary configurations from the backend.
+ */
+async function fetchAppConfig() {
+    try {
+        // Fetch Firebase and Maps config in parallel for speed
+        const [firebaseRes, mapsRes] = await Promise.all([
+            fetch('/api/firebase-config'),
+            fetch('/api/maps-key')
+        ]);
 
-        // Get the secure ID token and then connect
-        try {
-            const idToken = await user.getIdToken(true);
-            console.log("ID Token obtained successfully");
-            // This ensures we ONLY connect after the token is retrieved.
-            setInputsLocked(false); // Unlock the UI
-            connectWebsocket(idToken); // Connect with the secure token
-        } catch (error) {
-            console.error("Error getting ID token:", error);
-            setInputsLocked(true);
-            appendLog("Authentication token error. Please sign in again.", "system");
+        if (!firebaseRes.ok) throw new Error(`Firebase config fetch failed: ${firebaseRes.status}`);
+        const firebaseConfig = await firebaseRes.json();
+
+        if (mapsRes.ok) {
+            const mapsConfig = await mapsRes.json();
+            window.appConfig.googleMapsApiKey = mapsConfig.apiKey;
+            console.log("Successfully fetched Google Maps API Key.");
+        } else {
+            console.warn("Could not fetch Google Maps API key. Maps features will be unavailable.");
         }
 
-    } else {
-        // User is signed out
-        console.log("User is signed out.");
-        userProfileDiv.classList.add('hidden');
-        loginGate.style.display = 'flex'; // Show login gate
-
-        setInputsLocked(true); // Lock the UI
-
-        // Ensure websocket is closed
-        if (websocket) {
-            websocket.close();
-            websocket = null;
-        }
-        // Use querySelector to be safe
-        const systemMsg = document.querySelector("#messages .system");
-        if(systemMsg) systemMsg.textContent = "Please sign in to establish a connection.";
+        return firebaseConfig;
+    } catch (error) {
+        console.error("FATAL: Could not fetch application configuration from server.", error);
+        appendLog("Error: Failed to load application configuration. Please refresh the page.", "system");
+        return null;
     }
-});
+}
+
+/**
+ * Main entry point for the application.
+ * Fetches config, then initializes services and UI.
+ */
+async function main() {
+    const firebaseConfig = await fetchAppConfig();
+    if (!firebaseConfig) return; // Stop if config fails
+
+    // 1. Initialize Firebase
+    firebaseApp = initializeApp(firebaseConfig);
+    analytics = getAnalytics(firebaseApp);
+    auth = getAuth(firebaseApp);
+    provider = new GoogleAuthProvider();
+
+    // 2. Initialize Firebase App Check
+    try {
+        initializeAppCheck(firebaseApp, {
+            provider: new ReCaptchaV3Provider('6Ld7aWsrAAAAAKlRVXERrU-WniiRyUYsQz9-Ku-1'),
+            isTokenAutoRefreshEnabled: true
+        });
+        console.log("Firebase App Check with reCAPTCHA v3 initialized successfully.");
+    } catch (error) {
+        console.error("Error initializing Firebase App Check:", error);
+        appendLog("Security check initialization failed. Some features may not work.", "system");
+    }
+
+    // 3. Set up the authentication state listener
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            console.log("User authenticated:", user.displayName);
+            userNameSpan.textContent = user.displayName;
+            userAvatarImg.src = user.photoURL;
+            userProfileDiv.classList.remove('hidden');
+            loginGate.style.display = 'none';
+
+            try {
+                const idToken = await user.getIdToken(true);
+                setInputsLocked(false);
+                connectWebsocket(idToken);
+            } catch (error) {
+                console.error("Error getting ID token:", error);
+                setInputsLocked(true);
+                appendLog("Authentication token error. Please sign in again.", "system");
+            }
+        } else {
+            console.log("User is signed out.");
+            userProfileDiv.classList.add('hidden');
+            loginGate.style.display = 'flex';
+            setInputsLocked(true);
+            if (websocket) websocket.close();
+            const systemMsg = document.querySelector("#messages .system");
+            if (systemMsg) systemMsg.textContent = "Please sign in to establish a connection.";
+        }
+    });
+}
 
 signInButton.addEventListener('click', () => {
     signInWithPopup(auth, provider).catch(error => {
@@ -136,6 +146,9 @@ signOutButton.addEventListener('click', () => {
         console.error("Sign-out error:", error);
     });
 });
+
+// --- Start the application ---
+main();
 
 // --- UI Control ---
 

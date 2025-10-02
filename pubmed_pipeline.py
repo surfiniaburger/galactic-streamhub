@@ -51,12 +51,15 @@ def setup_logging():
 
 logger, gcp_log_handler, gcp_log_client_instance = setup_logging()
 
+bq_client = None
+embedding_model = None
 try:
     bq_client = bigquery.Client(project=GCP_PROJECT_ID)
     embedding_model = TextEmbeddingModel.from_pretrained(EMBEDDING_MODEL_NAME)
 except Exception as e:
     logger.error(f"Failed to initialize BigQuery client or Embedding Model: {e}", exc_info=True)
-    raise
+    # Do not raise the exception, allow the application to continue without these clients
+
 
 class PubMedArticle(BaseModel):
     article_id: str

@@ -17,15 +17,11 @@ os.makedirs(STATIC_UPLOADS_DIR, exist_ok=True)
 
 # It's recommended to set the API key as an environment variable for security
 # e.g., export GOOGLE_API_KEY="your_api_key_here"
-try:
-    GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
-    if not GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY environment variable not set.")
-    genai.configure(api_key=GOOGLE_API_KEY)
-except Exception as e:
-    logger.error(f"Failed to configure Google GenAI: {e}")
-    # Handle the case where the API key is not set.
-    # The tool will fail gracefully if the key is missing.
+GOOGLE_API_KEY = os.environ.get('GOOGLE_API_KEY')
+if GOOGLE_API_KEY:
+    logger.info("GOOGLE_API_KEY environment variable set. The Nano Bana tool will work.")
+else:
+    logger.warning("GOOGLE_API_KEY environment variable is not set. The Nano Bana tool will not work.")
 
 MODEL_ID = "gemini-2.5-flash-image-preview"
 
@@ -51,6 +47,7 @@ def generate_image_with_nanobana(
         return "Error: Image generation API key is not configured."
 
     try:
+        genai.configure(api_key=GOOGLE_API_KEY)
         logger.info(f"Generating image with Gemini 1.5 for prompt: '{prompt}'")
 
         # Initialize the client within the function if you expect the key to be
