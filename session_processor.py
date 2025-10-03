@@ -30,7 +30,7 @@ Your final output **MUST** be a single, raw JSON object with two keys: "summary"
 
 # --- Define the Session Processor Agent ---
 SessionProcessorAgent = LlmAgent(
-    model="gemini-1.5-flash",
+    model="gemini-2.5-flash",
     name="SessionProcessorAgent",
     instruction=SESSION_PROCESSOR_INSTRUCTION,
     description="Analyzes a user's session to summarize the conversation and extract key information.",
