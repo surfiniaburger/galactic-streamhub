@@ -92,6 +92,7 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             self.db = self.client[db_name]
             self.interaction_history = self.db["interaction_history"] # Your existing collection
             self.personas = self.db["personas"]
+            self.session_summaries = self.db["session_summaries"]
             self.toolbox = self.db["toolbox"]
             self.workflows = self.db["workflows"]
             self.collection = self.interaction_history # For backward compatibility with some methods if needed
@@ -227,6 +228,25 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         except Exception as e:
             logger.error(f"Error saving persona for user {user_id}: {e}")
 
+    def save_session_summary(self, user_id: str, session_id: str, summary: str):
+        """
+        Saves the summary of a session to the session_summaries collection.
+        """
+        if not user_id or not session_id:
+            logger.warning("save_session_summary called with no user_id or session_id.")
+            return
+        try:
+            summary_data = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "summary": summary,
+                "timestamp": datetime.now(timezone.utc),
+            }
+            self.session_summaries.insert_one(summary_data)
+            logger.info(f"Successfully saved session summary for session_id: {session_id}.")
+        except Exception as e:
+            logger.error(f"Error saving session summary for session {session_id}: {e}")
+
     async def add_session_to_memory(self, session: Session) -> None:
         """
         Ingests the contents of a completed Session into the long-term memory store.
@@ -330,6 +350,30 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             return interactions
         except Exception as e:
             logger.error(f"Error getting recent interactions from MongoDB: {e}", exc_info=True)
+            return []
+
+    def get_recent_session_summaries(self, user_id: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """
+        Retrieves the most recent session summaries for a given user.
+        """
+        if self.session_summaries is None:
+            logger.error("MongoDB collection not available. Cannot get recent session summaries.")
+            return []
+        if not user_id:
+            logger.warning(f"get_recent_session_summaries called without user_id.")
+            return []
+
+        try:
+            cursor = self.session_summaries.find(
+                {"user_id": user_id}
+            ).sort("timestamp", DESCENDING).limit(limit)
+
+            summaries = list(cursor)
+            summaries.reverse()
+            logger.debug(f"Retrieved {len(summaries)} recent session summaries for user_id: {user_id}")
+            return summaries
+        except Exception as e:
+            logger.error(f"Error getting recent session summaries from MongoDB: {e}", exc_info=True)
             return []
     
     async def load_memory(self, ctx: InvocationContext, user_id: str, session_id: str, limit: Optional[int] = None) -> AsyncGenerator[Event, None]:
