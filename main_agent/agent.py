@@ -1,4 +1,7 @@
 # /Users/surfiniaburger/Desktop/app/agent_config.py
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.agents.parallel_agent import ParallelAgent # New Import
 from typing import Any, Dict, List, Optional
@@ -14,7 +17,7 @@ from typing import Any, Dict, List, Optional, Literal, AsyncGenerator
 # Import your callback functions and mongo_memory_service instance
 from mongo_memory import mongo_memory_service, MongoMemory # If in mongo_memory.py
 from callbacks import (
-    check_for_prompt_injection_callback,  # Import the new callback
+    security_check_callback,  # Import the new callback
     load_memory_before_model_callback,
     save_interaction_after_model_callback,
 )

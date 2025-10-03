@@ -13,6 +13,8 @@ from google.adk.events import Event
 from security import sanitize_prompt_with_model_armor
 # For simplicity, if mongo_memory.py is in the same directory:
 from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT # Make sure MongoMemory class is also available if needed
+from session_processor import SessionProcessorAgent
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,15 @@ async def load_memory_before_model_callback( # Changed to async def
         else:
             logger.info(f"[Callback: BeforeModel] No relevant past interactions found for user {user_id}, session {session_id}.")
 
+        # --- Combine with Session Summaries ---
+        session_summaries = mongo_memory_service.get_recent_session_summaries(user_id, limit=3)
+        summaries_content = []
+        if session_summaries:
+            summary_text = "Here are summaries of recent sessions:\n"
+            for summary in session_summaries:
+                summary_text += f"- {summary['summary']}\n"
+            summaries_content.append(Content(role="user", parts=[Part.from_text(text=summary_text)]))
+
         # --- Prepending to the Prompt ---
         # The order is important: System Note, then History, then current query.
         # Create a new Content object for the persona summary.
@@ -188,8 +199,57 @@ async def load_memory_before_model_callback( # Changed to async def
 
         if llm_request.contents:
             # Prepend the persona content, then the history, to the current request's contents.
-            llm_request.contents = [persona_content] + history_contents + llm_request.contents
+            llm_request.contents = [persona_content] + summaries_content + history_contents + llm_request.contents
         else:
-            llm_request.contents = [persona_content] + history_contents
+            llm_request.contents = [persona_content] + summaries_content + history_contents
     except Exception as e:
         logger.error(f"Error in load_memory_before_model_callback: {e}", exc_info=True)
+
+async def end_of_session_callback(
+    callback_context: CallbackContext,
+) -> None:
+    """
+    Processes the session's conversation history at the end of the session.
+    """
+    if not mongo_memory_service:
+        logger.warning("MongoMemoryService not available in end_of_session_callback. Skipping session processing.")
+        return
+
+    try:
+        user_id = callback_context._invocation_context.session.user_id
+        session_id = callback_context._invocation_context.session.id
+
+        # Get all interactions for the session
+        interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=100) # Get all interactions
+
+        if not interactions:
+            logger.info(f"No interactions found for session {session_id}. Skipping session processing.")
+            return
+
+        # Format the conversation history for the SessionProcessorAgent
+        conversation_history = ""
+        for interaction in interactions:
+            conversation_history += f"User: {interaction['user_input']}\n"
+            conversation_history += f"Agent: {interaction['agent_response']}\n"
+
+        # Invoke the SessionProcessorAgent
+        llm_response = await SessionProcessorAgent.run_async(request=conversation_history)
+
+        # Process the response from the SessionProcessorAgent
+        if llm_response.content and llm_response.content.parts:
+            response_text = llm_response.content.parts[0].text
+            response_json = json.loads(response_text)
+
+            summary = response_json.get("summary")
+            extracted_info = response_json.get("extracted_info")
+
+            # Update the user's persona with the extracted information
+            if extracted_info:
+                mongo_memory_service.create_or_update_persona(user_id, extracted_info)
+
+            # Save the session summary
+            if summary:
+                mongo_memory_service.save_session_summary(user_id, session_id, summary)
+
+    except Exception as e:
+        logger.error(f"Error in end_of_session_callback: {e}", exc_info=True)
