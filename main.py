@@ -4,6 +4,10 @@ import os
 import base64
 import logging
 from dotenv import load_dotenv
+
+# --- FIX: Load environment variables at the very start ---
+load_dotenv()
+
 import io
 import json
 import asyncio
@@ -161,53 +165,11 @@ async def _collect_tools_stack(
 @asynccontextmanager
 async def app_lifespan(app_instance: FastAPI) -> Any:
     global _tracer_provider_set
-    if not _tracer_provider_set:
-        # --- OpenTelemetry/Weave Configuration (MUST RUN BEFORE ANY ADK IMPORTS) ---
-        load_dotenv()
-
-        # Configure Weave endpoint and authentication
-        WANDB_BASE_URL = os.getenv("WANDB_BASE_URL", "https://trace.wandb.ai")
-        # Ensure PROJECT_ID is correctly formatted: "entity/project"
-        PROJECT_ID = os.getenv("WANDB_PROJECT_ID", "jdmasciano2-university-of-lagos/galactic-streamhub")
-        OTEL_EXPORTER_OTLP_ENDPOINT = f"{WANDB_BASE_URL}/otel/v1/traces"
-
-        # Set up authentication
-        WANDB_API_KEY = os.getenv("WANDB_API_KEY")
-        if WANDB_API_KEY and PROJECT_ID:
-            try:
-                from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-                from opentelemetry.sdk import trace as trace_sdk
-                from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-                from opentelemetry import trace
-
-                AUTH = base64.b64encode(f"api:{WANDB_API_KEY}".encode()).decode()
-
-                OTEL_EXPORTER_OTLP_HEADERS = {
-                    "Authorization": f"Basic {AUTH}",
-                    "project_id": PROJECT_ID,
-                }
-
-                # Create the OTLP span exporter with endpoint and headers
-                exporter = OTLPSpanExporter(
-                    endpoint=OTEL_EXPORTER_OTLP_ENDPOINT,
-                    headers=OTEL_EXPORTER_OTLP_HEADERS,
-                )
-
-                # Create a tracer provider and add the exporter
-                tracer_provider = trace_sdk.TracerProvider()
-                tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
-
-                # Set the global tracer provider BEFORE importing/using ADK
-                trace.set_tracer_provider(tracer_provider)
-                logging.info("OpenTelemetry tracing for W&B Weave configured successfully.")
-                _tracer_provider_set = True
-            except ImportError:
-                logging.warning("OpenTelemetry packages not found. Tracing will be disabled.")
-            except Exception as e:
-                logging.error(f"Failed to configure OpenTelemetry tracing: {e}")
-        else:
-            logging.warning("WANDB_API_KEY or WANDB_PROJECT_ID not found in environment. Tracing will be disabled.")
-
+    # --- FIX: Disable OpenTelemetry tracing if not explicitly configured ---
+    # The current setup attempts to connect to a local OTLP collector on localhost:4318
+    # which causes a "Connection Refused" error and crashes the app if the collector isn't running.
+    # We will prevent the tracer provider from being set to avoid this.
+    _tracer_provider_set = True # Set to True to prevent any tracing setup from running.
     # --- NEW: Architectural fix for SSL verification on some systems (e.g., macOS) ---
     # This ensures that libraries like 'websockets' can verify Google's SSL certs
     # by pointing to a trusted certificate bundle provided by the 'certifi' package.

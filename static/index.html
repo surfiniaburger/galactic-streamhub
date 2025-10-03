@@ -13,6 +13,20 @@
     <script src="https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.fog.min.js"></script>
     <!-- Add this script tag to your index.html, preferably before your app.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+    <!-- NEW: Basic styles for the sketchpad -->
+    <style>
+        #sketchpad-container {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        #sketchpad {
+            border: 1px solid var(--text-muted);
+            cursor: crosshair;
+            border-radius: 4px;
+        }
+    </style>
 </head>
 <body class="dark-theme">
 
@@ -79,6 +93,16 @@
                             <span class="button-front-face"></span>
                         </button>                        
                     </form>
+                    <!-- =========== NEW: SKETCHPAD =========== -->
+                    <div id="sketchpad-container">
+                        <h4>Sketch for AVA:</h4>
+                        <canvas id="sketchpad" width="400" height="250"></canvas>
+                        <div class="input-controls" style="justify-content: flex-end; margin-top: 10px;">
+                            <button type="button" id="clear-canvas-btn" class="icon-button" title="Clear Sketch"><i class="fas fa-eraser"></i></button>
+                            <button type="button" id="send-sketch-btn" class="icon-button" title="Send Sketch to Agent"><i class="fas fa-paper-plane"></i></button>
+                        </div>
+                    </div>
+                    <!-- ======================================= -->
                 </div>
             </section>
         </main>

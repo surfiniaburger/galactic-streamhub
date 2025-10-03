@@ -363,6 +363,11 @@ To deploy this application to Google Cloud Run:
     export PROJECT_ID='silver-455021' # Replace with your Project ID
     ```
 
+    export SERVICE_NAME='galactic-streamhub' # Or your preferred service name
+    export LOCATION='us-central1'         # Or your preferred region
+    export PROJECT_ID='silver-455021' # Replace with your Project ID
+
+
 3.  **Deploy to Cloud Run:**
     Ensure you are in the project's root directory (where the `Dockerfile` is).
     ```bash

@@ -20,6 +20,7 @@ let loadingIndicatorId = null;
 let videoStream = null;
 let audioStream = null;
 let videoFrameInterval = null;
+window.appConfig = {}; // NEW: Initialize the global app config object
 const VIDEO_FRAME_INTERVAL_MS = 1000;
 const VIDEO_FRAME_QUALITY = 0.7;
 
@@ -45,6 +46,12 @@ const userProfileDiv = document.getElementById('user-profile');
 const userNameSpan = document.getElementById('user-name');
 const userAvatarImg = document.getElementById('user-avatar');
 
+// --- NEW: Sketchpad DOM Elements ---
+const sketchpad = document.getElementById('sketchpad');
+const sketchpadCtx = sketchpad.getContext('2d');
+const clearCanvasBtn = document.getElementById('clear-canvas-btn');
+const sendSketchBtn = document.getElementById('send-sketch-btn');
+
 
 // --- Application Startup and Configuration ---
 
@@ -52,16 +59,20 @@ const userAvatarImg = document.getElementById('user-avatar');
  * Fetches all necessary configurations from the backend.
  */
 async function fetchAppConfig() {
+    let firebaseConfig;
     try {
         // Fetch Firebase and Maps config in parallel for speed
         const [firebaseRes, mapsRes] = await Promise.all([
             fetch('/api/firebase-config'),
             fetch('/api/maps-key')
         ]);
-
-        if (!firebaseRes.ok) throw new Error(`Firebase config fetch failed: ${firebaseRes.status}`);
-        const firebaseConfig = await firebaseRes.json();
-
+ 
+        if (firebaseRes.ok) {
+            firebaseConfig = await firebaseRes.json();
+        } else {
+            throw new Error(`Firebase config fetch failed: ${firebaseRes.status}`);
+        }
+ 
         if (mapsRes.ok) {
             const mapsConfig = await mapsRes.json();
             window.appConfig.googleMapsApiKey = mapsConfig.apiKey;
@@ -71,7 +82,7 @@ async function fetchAppConfig() {
         }
 
         return firebaseConfig;
-    } catch (error) {
+    } catch (error) { 
         console.error("FATAL: Could not fetch application configuration from server.", error);
         appendLog("Error: Failed to load application configuration. Please refresh the page.", "system");
         return null;
@@ -157,6 +168,9 @@ function setInputsLocked(isLocked) {
     sendButton.disabled = isLocked;
     startAudioButton.disabled = isLocked;
     startVideoButton.disabled = isLocked;
+    // --- NEW: Lock sketchpad buttons on disconnect ---
+    clearCanvasBtn.disabled = isLocked;
+    sendSketchBtn.disabled = isLocked;
 
     messageInput.placeholder = isLocked ? "Authenticate to transmit..." : "Transmit your message...";
 
@@ -871,6 +885,67 @@ function sendVideoFrame() {
 
 if (startVideoButton) startVideoButton.addEventListener("click", toggleVideo);
 
+// --- NEW: Sketchpad Drawing Logic ---
+
+let isDrawing = false;
+
+// Initialize canvas background and drawing style
+function initializeCanvas() {
+    sketchpadCtx.fillStyle = "white";
+    sketchpadCtx.fillRect(0, 0, sketchpad.width, sketchpad.height);
+    sketchpadCtx.strokeStyle = '#000';
+    sketchpadCtx.lineWidth = 3;
+    sketchpadCtx.lineJoin = 'round';
+    sketchpadCtx.lineCap = 'round';
+}
+
+function getMousePos(canvas, evt) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: evt.clientX - rect.left,
+        y: evt.clientY - rect.top
+    };
+}
+
+function startDrawing(e) {
+    isDrawing = true;
+    const pos = getMousePos(sketchpad, e);
+    sketchpadCtx.beginPath();
+    sketchpadCtx.moveTo(pos.x, pos.y);
+}
+
+function stopDrawing() {
+    isDrawing = false;
+}
+
+function draw(e) {
+    if (!isDrawing) return;
+    e.preventDefault(); // Prevent page scrolling while drawing
+    const pos = getMousePos(sketchpad, e);
+    sketchpadCtx.lineTo(pos.x, pos.y);
+    sketchpadCtx.stroke();
+}
+
+// Event Listeners for Drawing
+sketchpad.addEventListener('mousedown', startDrawing);
+sketchpad.addEventListener('mouseup', stopDrawing);
+sketchpad.addEventListener('mouseout', stopDrawing);
+sketchpad.addEventListener('mousemove', draw);
+
+// Button Controls
+clearCanvasBtn.addEventListener('click', initializeCanvas);
+
+sendSketchBtn.addEventListener('click', () => {
+    // Convert canvas to a WebP image data URL (base64 encoded)
+    const dataUrl = sketchpad.toDataURL('image/webp', 0.8); // Use WebP for efficiency
+    const base64Data = dataUrl.split(',')[1];
+
+    // Send the image data over the WebSocket using our existing function
+    sendMessage({ mime_type: 'image/webp', data: base64Data });
+    appendLog("Sketch sent to agent.", "system");
+    logInteraction('sketch_sent');
+});
+
 
 
 // --- Draggable PiP Widget Logic ---
@@ -951,3 +1026,6 @@ function logInteraction(type) {
     });
   }
 }
+
+// Initialize the canvas on page load
+initializeCanvas();
