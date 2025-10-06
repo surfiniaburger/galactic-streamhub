@@ -40,7 +40,13 @@ EMBEDDING_MODEL_NAME = "text-embedding-005"
 # --- Setup (Logging, Clients) ---
 
 def setup_logging():
-    """Sets up Google Cloud Logging."""
+    """Sets up Google Cloud Logging if not in a test environment."""
+    if os.environ.get("IS_TESTING") == "true":
+        # Use a basic logger for testing to avoid GCP auth issues
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger('pubmed_pipeline_test')
+        return logger, None, None
+
     gcp_logging_client = google.cloud.logging.Client(project=GCP_PROJECT_ID)
     handler = CloudLoggingHandler(gcp_logging_client)
     logger = logging.getLogger('pubmed_pipeline')
@@ -53,12 +59,13 @@ logger, gcp_log_handler, gcp_log_client_instance = setup_logging()
 
 bq_client = None
 embedding_model = None
-try:
-    bq_client = bigquery.Client(project=GCP_PROJECT_ID)
-    embedding_model = TextEmbeddingModel.from_pretrained(EMBEDDING_MODEL_NAME)
-except Exception as e:
-    logger.error(f"Failed to initialize BigQuery client or Embedding Model: {e}", exc_info=True)
-    # Do not raise the exception, allow the application to continue without these clients
+if os.environ.get("IS_TESTING") != "true":
+    try:
+        bq_client = bigquery.Client(project=GCP_PROJECT_ID)
+        embedding_model = TextEmbeddingModel.from_pretrained(EMBEDDING_MODEL_NAME)
+    except Exception as e:
+        logger.error(f"Failed to initialize BigQuery client or Embedding Model: {e}", exc_info=True)
+        # Do not raise the exception, allow the application to continue without these clients
 
 
 class PubMedArticle(BaseModel):

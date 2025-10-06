@@ -39,6 +39,10 @@ EMBEDDING_MODEL_NAME = "text-embedding-005"
 
 def setup_logging():
     """Sets up Google Cloud Logging."""
+    if os.environ.get("IS_TESTING") == "true":
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger('clinical_trials_pipeline_test')
+        return logger, None, None
     # Renaming logger to avoid conflicts if imported elsewhere
     logger = logging.getLogger('clinical_trials_pipeline')
     if logger.handlers:
@@ -52,12 +56,15 @@ def setup_logging():
 
 logger, gcp_log_handler, gcp_log_client_instance = setup_logging()
 
-try:
-    bq_client = bigquery.Client(project=GCP_PROJECT_ID)
-    embedding_model = TextEmbeddingModel.from_pretrained(EMBEDDING_MODEL_NAME)
-except Exception as e:
-    logger.error(f"Failed to initialize BigQuery client or Embedding Model: {e}", exc_info=True)
-    raise
+bq_client = None
+embedding_model = None
+if os.environ.get("IS_TESTING") != "true":
+    try:
+        bq_client = bigquery.Client(project=GCP_PROJECT_ID)
+        embedding_model = TextEmbeddingModel.from_pretrained(EMBEDDING_MODEL_NAME)
+    except Exception as e:
+        logger.error(f"Failed to initialize BigQuery client or Embedding Model: {e}", exc_info=True)
+        raise
 
 class ClinicalTrialStudy(BaseModel):
     """Pydantic model for a clinical trial study record."""

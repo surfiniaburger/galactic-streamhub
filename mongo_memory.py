@@ -7,6 +7,7 @@ import logging
 import os
 import certifi # For TLS/SSL connections, especially with MongoDB Atlas
 from pymongo.operations import SearchIndexModel # Import for Atlas Search Index
+import mongomock
 import vertexai # For Vertex AI initialization
 from vertexai.language_models import TextEmbeddingModel # For text embeddings
 from google.adk.memory.base_memory_service import BaseMemoryService
@@ -40,6 +41,9 @@ DEFAULT_MEMORY_COLLECTION_NAME = "interaction_history"
 DEFAULT_HISTORY_LIMIT = 5
 
 def get_secret(secret_id: str, project_id: str, version_id: str = "latest") -> Optional[str]:
+    if os.environ.get("IS_TESTING") == "true":
+        logger.info("IS_TESTING is true. Skipping secret retrieval.")
+        return None
     if not project_id:
         logger.error("GCP_PROJECT_ID is not set. Cannot retrieve secret.")
         return None
@@ -75,20 +79,33 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
         self.client: Optional[MongoClient] = None
         self.db = None
         self.collection = None
-        
-        actual_mongo_uri = get_mongodb_uri_from_sources()
+        self.interaction_history = None
+        self.personas = None
+        self.session_summaries = None
+        self.toolbox = None
+        self.workflows = None
+        self.embedding_model = None
 
-        if not actual_mongo_uri:
-            logger.error("MongoDB URI is not available. MongoMemory will not be functional.")
-            return
+        super().__init__()
 
-        try:
-            self.client = MongoClient(actual_mongo_uri, server_api=ServerApi('1'), tlsCAFile=certifi.where())
-            self.client.admin.command('ping')
-            logger.info("Pinged your deployment. You successfully connected to MongoDB!")
-            super().__init__() # Initialize BaseMemoryService with app_name
+        if os.environ.get("IS_TESTING") == "true":
+            logger.info("IS_TESTING is true. Using mongomock for MongoDB client.")
+            self.client = mongomock.MongoClient()
+        else:
+            actual_mongo_uri = get_mongodb_uri_from_sources()
+            if not actual_mongo_uri:
+                logger.error("MongoDB URI is not available. MongoMemory will not be functional.")
+                self.client = None
+            else:
+                try:
+                    self.client = MongoClient(actual_mongo_uri, server_api=ServerApi('1'), tlsCAFile=certifi.where())
+                    self.client.admin.command('ping')
+                    logger.info("Pinged your deployment. You successfully connected to MongoDB!")
+                except Exception as e:
+                    logger.error(f"Failed to connect to MongoDB at resolved URI or initialize: {e}", exc_info=True)
+                    self.client = None
 
-            # --- Define specialized collections ---
+        if self.client:
             self.db = self.client[db_name]
             self.interaction_history = self.db["interaction_history"] # Your existing collection
             self.personas = self.db["personas"]
@@ -98,20 +115,17 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
             self.collection = self.interaction_history # For backward compatibility with some methods if needed
             logger.info(f"Connected to MongoDB. Specialized collections are ready in db '{db_name}'.")
 
-            # Initialize Vertex AI TextEmbeddingModel
-            try:
-                vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
-                self.embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005") # Or "text-embedding-004"
-                logger.info("Vertex AI TextEmbeddingModel initialized for MongoMemory.")
-            except Exception as e:
-                logger.error(f"Failed to initialize Vertex AI TextEmbeddingModel: {e}", exc_info=True)
+            if os.environ.get("IS_TESTING") != "true":
+                try:
+                    vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
+                    self.embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005") # Or "text-embedding-004"
+                    logger.info("Vertex AI TextEmbeddingModel initialized for MongoMemory.")
+                except Exception as e:
+                    logger.error(f"Failed to initialize Vertex AI TextEmbeddingModel: {e}", exc_info=True)
+                    self.embedding_model = None
+            else:
                 self.embedding_model = None
             self._ensure_all_indexes()
-        except Exception as e:
-            logger.error(f"Failed to connect to MongoDB at resolved URI or initialize: {e}", exc_info=True)
-            self.client = None
-            self.db = None
-            self.collection = None
 
     def _ensure_all_indexes(self):
         # CORRECTED CHECK

@@ -621,7 +621,7 @@ def create_streaming_agent_with_mcp_tools(
     # in the conversation history.
     shared_callbacks = {
         "before_model_callback": [
-             check_for_prompt_injection_callback,  # Security check runs first!
+             security_check_callback,  # Security check runs first!
              load_memory_before_model_callback,
         ],
        "after_model_callback": save_interaction_after_model_callback,
@@ -1319,3 +1319,7 @@ root_agent = create_streaming_agent_with_mcp_tools(
 )
 
 logging.info("Created standalone 'root_agent' instance for ADK tools.")
+
+from google.adk.a2a.utils.agent_to_a2a import to_a2a
+
+a2a_app = to_a2a(root_agent, port=8001)

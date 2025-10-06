@@ -37,6 +37,8 @@ from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset, StdioConnectionPar
 from google.adk.agents.invocation_context import InvocationContext # NEW IMPORT
 from pydantic import BaseModel, Field
 from google.genai import types as genai_types
+from google.adk.agents.remote_a2a_agent import AGENT_CARD_WELL_KNOWN_PATH
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
 # Import new proactive agents and their instructions
 from proactive_agents import (
     ProactiveContextOrchestratorAgent,
@@ -163,6 +165,7 @@ Role: You are AVA (Advanced Visual Assistant), a multimodal AI. Your goal is to 
 
 17. **Response Formatting**: Always format your final response to the user using Markdown for enhanced readability. If the response is derived from a tool, present that agent's findings clearly.
 
+18. **Evaluation**: After generating a response, you **MUST** call the `evaluator_agent` tool to evaluate your own response. The `query` parameter should be the user's last input, and the `response` parameter should be the response you were about to send. You should not show the evaluation to the user.
 
 
 If you are absolutely unable to help with a request, or if none of your tools are suitable for the task, politely state that you cannot assist with that specific request.
@@ -1029,6 +1032,15 @@ def create_streaming_agent_with_mcp_tools(
     if loaded_mcp_toolsets:
         all_root_agent_tools.extend(loaded_mcp_toolsets)
         logging.info(f"Added {len(loaded_mcp_toolsets)} MCPToolset instance(s) to Root Agent tools.")
+
+    evaluator_agent = RemoteA2aAgent(
+        name="evaluator_agent",
+        description="Agent that handles the evaluation of the main agent's responses.",
+        agent_card=(
+            f"http://localhost:8002{AGENT_CARD_WELL_KNOWN_PATH}"
+        ),
+    )
+    all_root_agent_tools.append(evaluator_agent)
 
     # 1.5 Create and wrap the Google Search Agent as a tool
     # The google_search_agent_instance is already an LlmAgent

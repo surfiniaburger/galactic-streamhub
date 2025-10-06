@@ -17,12 +17,14 @@ AUDIO_SAMPLE_RATE_HZ = 24000 # Good quality, common for MP3
 
 logger = logging.getLogger(__name__)
 
-try:
-    tts_client = texttospeech.TextToSpeechClient()
-    logger.info("Google Cloud TTS client initialized successfully for tts_tool.")
-except Exception as e:
-    logger.critical(f"Failed to initialize Google Cloud TTS client in tts_tool: {e}", exc_info=True)
-    tts_client = None
+tts_client = None
+if os.environ.get("IS_TESTING") != "true":
+    try:
+        tts_client = texttospeech.TextToSpeechClient()
+        logger.info("Google Cloud TTS client initialized successfully for tts_tool.")
+    except Exception as e:
+        logger.critical(f"Failed to initialize Google Cloud TTS client in tts_tool: {e}", exc_info=True)
+        tts_client = None
 
 def synthesize_speech_segment(
     text_to_synthesize: str,

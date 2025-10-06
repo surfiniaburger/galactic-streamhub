@@ -31,15 +31,18 @@ MONGODB_MULTIMODAL_INDEX_NAME = "multimodal_image_index"
 # --- Setup Logging and Vertex AI ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-try:
-    vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
-    # Load the pre-trained multimodal embedding model
-    embedding_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
-    generative_model = GenerativeModel("gemini-2.5-flash-preview-05-20")
-    logging.info("Successfully initialized Vertex AI and loaded the multimodal embedding model.")
-except Exception as e:
-    logging.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
-    raise
+embedding_model = None
+generative_model = None
+if os.environ.get("IS_TESTING") != "true":
+    try:
+        vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
+        # Load the pre-trained multimodal embedding model
+        embedding_model = MultiModalEmbeddingModel.from_pretrained("multimodalembedding@001")
+        generative_model = GenerativeModel("gemini-2.5-flash-preview-05-20")
+        logging.info("Successfully initialized Vertex AI and loaded the multimodal embedding model.")
+    except Exception as e:
+        logging.error(f"Failed to initialize Vertex AI: {e}", exc_info=True)
+        raise
 
 def get_mongodb_uri():
     """
@@ -57,6 +60,8 @@ def get_mongodb_uri():
 
 def get_secret(secret_id, version_id="latest"):
     """Retrieves a secret from Google Cloud Secret Manager."""
+    if os.environ.get("IS_TESTING") == "true":
+        return None
     try:
         client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{GCP_PROJECT_ID}/secrets/{secret_id}/versions/{version_id}"

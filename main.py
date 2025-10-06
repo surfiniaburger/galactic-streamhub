@@ -729,3 +729,22 @@ async def get_firebase_config():
         logging.error("One or more FIREBASE_WEB_* environment variables are missing.")
         return Response(status_code=500, content="Server is missing critical client configuration.")
     return config
+
+if __name__ == "__main__":
+    import uvicorn
+    import multiprocessing
+    from main_agent.agent import a2a_app as main_a2a_app
+    from evaluator_agent.agent import a2a_app as evaluator_a2a_app
+
+    def run_main_agent():
+        uvicorn.run(main_a2a_app, host="0.0.0.0", port=8001)
+
+    def run_evaluator_agent():
+        uvicorn.run(evaluator_a2a_app, host="0.0.0.0", port=8002)
+
+    p1 = multiprocessing.Process(target=run_main_agent)
+    p2 = multiprocessing.Process(target=run_evaluator_agent)
+    p1.start()
+    p2.start()
+    p1.join()
+    p2.join()
