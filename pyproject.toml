@@ -43,4 +43,5 @@ dependencies = [
     "weave>=0.52.5",
     "opentelemetry-sdk>=1.36.0",
     "opentelemetry-exporter-otlp-proto-http>=1.36.0",
+    "google-genai>=1.39.1",
 ]

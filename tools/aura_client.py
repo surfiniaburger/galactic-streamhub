@@ -4,6 +4,7 @@ import logging
 import asyncio
 import uuid
 from gradio_client import Client, handle_file
+from google.adk.tools import ToolContext
 
 
 # Configure logging

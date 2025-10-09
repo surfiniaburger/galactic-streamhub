@@ -16,7 +16,7 @@ import { initializeAppCheck, ReCaptchaV3Provider } from "https://www.gstatic.com
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "",
+  apiKey: "AIzaSyAfQdnH51YN_yFhw-kdaAoTua_WjVreRP8",
   authDomain: "studio-l13dd.firebaseapp.com",
   projectId: "studio-l13dd",
   storageBucket: "studio-l13dd.firebasestorage.app",
