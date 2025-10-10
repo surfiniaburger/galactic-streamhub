@@ -219,67 +219,7 @@ function showAgentThinking(isThinking) {
     }
 }
 
-// WebSocket handlers
-function connectWebsocket(token) {
-    if (!token) {
-        console.error("Connection failed: No authentication token provided.");
-        appendLog("Authentication error. Please sign in again.", "system");
-        return;
-    }
-    if (websocket) websocket.close();
-
-    const ws_protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    // **CRITICAL**: Properly encode the token parameter
-    const encodedToken = encodeURIComponent(token);
-    const ws_url = `${ws_protocol}//${window.location.host}/ws?token=${encodedToken}&is_audio=${is_audio_mode_active}`;
-    
-    console.log("Attempting to connect to secure WebSocket...");
-    console.log("WebSocket URL (without token):", ws_url.replace(/token=[^&]+/, 'token=***'));
-    
-    websocket = new WebSocket(ws_url);
-
-    websocket.onopen = () => {
-        console.log("Secure WebSocket connection opened.");
-        appendLog("Connection established. Ready for transmission.", "system");
-         // Unlock the UI now that the connection is ready
-        setInputsLocked(false); 
-        addSubmitHandler();
-    };
-
-// Enhanced WebSocket message handler with better presentation
-websocket.onmessage = function (event) {
-    try {
-        const message_from_server = JSON.parse(event.data);
-        console.log("[AGENT TO CLIENT] ", message_from_server);
-        console.log("message_from_server.turn_complete:", message_from_server.turn_complete);
-
-        if (message_from_server.turn_complete) {
-            currentMessageId = null;
-            showAgentThinking(false);
-            // Finalize the message presentation when turn is complete
-            if (currentMessageId) {
-                finalizeMessagePresentation(currentMessageId);
-            }
-            return;
-        }
-
-        if (message_from_server.mime_type === "audio/pcm" && audioPlayerNode) {
-            if (isProcessingAudioResponse) {
-                showAgentThinking(false);
-                isProcessingAudioResponse = false;
-            }
-            audioPlayerNode.port.postMessage(base64ToArray(message_from_server.data));
-        } else if (message_from_server.mime_type === "text/plain") {
-            if (loadingIndicatorId) {
-                showAgentThinking(false);
-            }
-            
-            handleTextMessage(message_from_server.data);
-        }
-    } catch (error) {
-        console.error("Error in websocket.onmessage:", error);
-    }
-}
+// --- START OF REFACTORED MESSAGE HANDLING ---
 
 // Enhanced text message handler
 function handleTextMessage(textData) {
@@ -311,7 +251,8 @@ function handleTextMessage(textData) {
             repeat: -1,
             yoyo: true
         });
-        // --- End GSAP ---        
+        // --- End GSAP ---
+        
     }
 
     // Accumulate the full text content
@@ -344,9 +285,9 @@ function parseStructuredContent(text) {
         const line = lines[i].trim();
         
         // Detect chart image URLs
-        const chartImageMatch = line.match(/^\[?(\/static\/charts\/[a-zA-Z0-9_-]+\.png)\]?$/);
+        const chartImageMatch = line.match(/^\/?static\/charts\/[a-zA-Z0-9_-]+\.png\]?$/);
         // Detect medical scan image URLs (matches /static/medical_images/series_uid/filename.png)
-        const medicalImageMatch = line.match(/^\[?(\/static\/medical_images\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\.png)\]?$/);
+        const medicalImageMatch = line.match(/^\/?static\/medical_images\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\.png\]?$/);
 
         if (chartImageMatch) {
             // Finalize current section
@@ -527,13 +468,78 @@ function finalizeMessagePresentation(messageId) {
 // Handle question responses
 function handleQuestionResponse(saveArticles) {
     const response = saveArticles ? 'yes' : 'no';
-    sendMessage({ 
+    sendMessage({
         mime_type: "text/plain", 
         data: `Save articles: ${response}` 
     });
     
     console.log(`User response: ${saveArticles ? 'Save articles' : 'Skip saving'}`);
 }
+
+// --- END OF REFACTORED MESSAGE HANDLING ---
+
+
+// WebSocket handlers
+function connectWebsocket(token) {
+    if (!token) {
+        console.error("Connection failed: No authentication token provided.");
+        appendLog("Authentication error. Please sign in again.", "system");
+        return;
+    }
+    if (websocket) websocket.close();
+
+    const ws_protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    // **CRITICAL**: Properly encode the token parameter
+    const encodedToken = encodeURIComponent(token);
+    const ws_url = `${ws_protocol}//${window.location.host}/ws?token=${encodedToken}&is_audio=${is_audio_mode_active}`;
+    
+    console.log("Attempting to connect to secure WebSocket...");
+    console.log("WebSocket URL (without token):", ws_url.replace(/token=[^&]+/, 'token=***'));
+    
+    websocket = new WebSocket(ws_url);
+
+    websocket.onopen = () => {
+        console.log("Secure WebSocket connection opened.");
+        appendLog("Connection established. Ready for transmission.", "system");
+         // Unlock the UI now that the connection is ready
+        setInputsLocked(false); 
+        addSubmitHandler();
+    };
+
+// Enhanced WebSocket message handler with better presentation
+    websocket.onmessage = function (event) {
+        try {
+            const message_from_server = JSON.parse(event.data);
+            console.log("[AGENT TO CLIENT] ", message_from_server);
+            console.log("message_from_server.turn_complete:", message_from_server.turn_complete);
+
+            if (message_from_server.turn_complete) {
+                currentMessageId = null;
+                showAgentThinking(false);
+                // Finalize the message presentation when turn is complete
+                if (currentMessageId) {
+                    finalizeMessagePresentation(currentMessageId);
+                }
+                return;
+            }
+
+            if (message_from_server.mime_type === "audio/pcm" && audioPlayerNode) {
+                if (isProcessingAudioResponse) {
+                    showAgentThinking(false);
+                    isProcessingAudioResponse = false;
+                }
+                audioPlayerNode.port.postMessage(base64ToArray(message_from_server.data));
+            } else if (message_from_server.mime_type === "text/plain") {
+                if (loadingIndicatorId) {
+                    showAgentThinking(false);
+                }
+                
+                handleTextMessage(message_from_server.data);
+            }
+        } catch (error) {
+            console.error("Error in websocket.onmessage:", error);
+        }
+    }
 
     websocket.onclose = function () {
         console.log("WebSocket connection closed.");
@@ -951,3 +957,5 @@ function logInteraction(type) {
     });
   }
 }
+
+export { parseStructuredContent, createPresentationCard, parseAdvancedMarkdown };
