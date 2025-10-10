@@ -55,63 +55,64 @@ def get_secret(secret_id: str, project_id: str, version_id: str = "latest") -> O
         return None
 
 def get_mongodb_uri_from_sources() -> Optional[str]:
-    mongodb_uri_env = os.environ.get(MONGODB_URI_ENV_VAR)
-    if mongodb_uri_env:
+    """Retrieves the MongoDB URI from environment variables or GCP Secret Manager."""
+    if mongodb_uri := os.environ.get(MONGODB_URI_ENV_VAR):
         logger.info(f"Using MongoDB URI from environment variable '{MONGODB_URI_ENV_VAR}'.")
-        return mongodb_uri_env
+        return mongodb_uri
 
-    logger.info(f"MongoDB URI not found in environment variable '{MONGODB_URI_ENV_VAR}'. Attempting to retrieve from Secret Manager.")
-    mongodb_uri_secret = get_secret(MONGODB_SECRET_ID, GCP_PROJECT_ID)
-    if mongodb_uri_secret:
+    logger.info(f"MongoDB URI not found in environment. Attempting to retrieve from Secret Manager.")
+    if mongodb_uri := get_secret(MONGODB_SECRET_ID, GCP_PROJECT_ID):
         logger.info(f"Using MongoDB URI from Secret Manager ('{MONGODB_SECRET_ID}').")
-        return mongodb_uri_secret
+        return mongodb_uri
 
-    logger.error(f"MongoDB URI could not be found in environment variable ('{MONGODB_URI_ENV_VAR}') or Secret Manager ('{MONGODB_SECRET_ID}').")
+    logger.error(f"MongoDB URI not found in environment variable or Secret Manager.")
     return None
 
 
-class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
+class MongoMemory(BaseMemoryService):
+    """A memory service that uses MongoDB as a backend."""
+
     def __init__(self, db_name: str):
+        super().__init__()
         self.client: Optional[MongoClient] = None
         self.db = None
-        self.collection = None
-        
-        actual_mongo_uri = get_mongodb_uri_from_sources()
+        self.embedding_model = None
+        self._initialize(db_name)
 
-        if not actual_mongo_uri:
+    def _initialize(self, db_name: str):
+        """Initializes the MongoDB connection and collections."""
+        if not (actual_mongo_uri := get_mongodb_uri_from_sources()):
             logger.error("MongoDB URI is not available. MongoMemory will not be functional.")
             return
 
         try:
             self.client = MongoClient(actual_mongo_uri, server_api=ServerApi('1'), tlsCAFile=certifi.where())
             self.client.admin.command('ping')
-            logger.info("Pinged your deployment. You successfully connected to MongoDB!")
-            super().__init__() # Initialize BaseMemoryService with app_name
+            logger.info("Successfully connected to MongoDB.")
 
-            # --- Define specialized collections ---
             self.db = self.client[db_name]
-            self.interaction_history = self.db["interaction_history"] # Your existing collection
+            self.interaction_history = self.db["interaction_history"]
             self.personas = self.db["personas"]
             self.session_summaries = self.db["session_summaries"]
             self.toolbox = self.db["toolbox"]
             self.workflows = self.db["workflows"]
-            self.collection = self.interaction_history # For backward compatibility with some methods if needed
-            logger.info(f"Connected to MongoDB. Specialized collections are ready in db '{db_name}'.")
+            self.collection = self.interaction_history  # For backward compatibility
 
-            # Initialize Vertex AI TextEmbeddingModel
-            try:
-                vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
-                self.embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005") # Or "text-embedding-004"
-                logger.info("Vertex AI TextEmbeddingModel initialized for MongoMemory.")
-            except Exception as e:
-                logger.error(f"Failed to initialize Vertex AI TextEmbeddingModel: {e}", exc_info=True)
-                self.embedding_model = None
+            self._initialize_embedding_model()
             self._ensure_all_indexes()
         except Exception as e:
-            logger.error(f"Failed to connect to MongoDB at resolved URI or initialize: {e}", exc_info=True)
+            logger.error(f"Failed to initialize MongoMemory: {e}", exc_info=True)
             self.client = None
             self.db = None
-            self.collection = None
+
+    def _initialize_embedding_model(self):
+        """Initializes the Vertex AI TextEmbeddingModel."""
+        try:
+            vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
+            self.embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-005")
+            logger.info("Vertex AI TextEmbeddingModel initialized.")
+        except Exception as e:
+            logger.error(f"Failed to initialize Vertex AI TextEmbeddingModel: {e}", exc_info=True)
 
     def _ensure_all_indexes(self):
         # CORRECTED CHECK
@@ -186,56 +187,41 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
     def get_persona(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Retrieves the persona document for a given user."""
         if not user_id:
-            logger.warning("get_persona called with no user_id.")
+            logger.warning("get_persona called with an empty user_id.")
             return None
         try:
-            logger.debug(f"Retrieving persona for user_id: {user_id}")
-            print(f"Retrieving persona for user_id: {user_id}") 
+            logger.info(f"Retrieving persona for user_id: {user_id}")
             persona = self.personas.find_one({"user_id": user_id})
-            if persona and "_id" in persona:
-                persona["_id"] = str(persona["_id"]) # For JSON serialization if needed
-            return persona
+            if persona:
+                persona["_id"] = str(persona["_id"])  # For JSON serialization
+                return persona
+            return None
         except Exception as e:
-            logger.error(f"Error retrieving persona for user {user_id}: {e}")
+            logger.error(f"Error retrieving persona for user {user_id}: {e}", exc_info=True)
             return None
 
     def create_or_update_persona(self, user_id: str, persona_data: Dict[str, Any]):
-        """
-        Creates or updates a user's persona. The agent provides the data.
-        Schema Example:
-        {
-            "user_id": "user123",
-            "name": "Alex",
-            "preferences": {
-                "communication_style": "concise",
-                "interests": ["AI", "hiking"]
-            },
-            "goals": ["Learn about agentic memory"],
-            "last_updated": datetime.now(timezone.utc)
-        }
-        """
+        """Creates or updates a user's persona."""
         if not user_id:
-            logger.warning("create_or_update_persona called with no user_id.")
+            logger.warning("create_or_update_persona called with an empty user_id.")
             return
         try:
-            # Use upsert=True to create the document if it doesn't exist, or update it if it does.
+            logger.info(f"Updating persona for user_id: {user_id}")
             self.personas.update_one(
                 {"user_id": user_id},
                 {"$set": persona_data, "$currentDate": {"last_updated": True}},
                 upsert=True
             )
-            logger.info(f"Successfully created/updated persona for user_id: {user_id}.")
         except Exception as e:
-            logger.error(f"Error saving persona for user {user_id}: {e}")
+            logger.error(f"Error saving persona for user {user_id}: {e}", exc_info=True)
 
     def save_session_summary(self, user_id: str, session_id: str, summary: str):
-        """
-        Saves the summary of a session to the session_summaries collection.
-        """
+        """Saves the summary of a session."""
         if not user_id or not session_id:
-            logger.warning("save_session_summary called with no user_id or session_id.")
+            logger.warning("save_session_summary called with an empty user_id or session_id.")
             return
         try:
+            logger.info(f"Saving session summary for session_id: {session_id}")
             summary_data = {
                 "user_id": user_id,
                 "session_id": session_id,
@@ -243,294 +229,191 @@ class MongoMemory(BaseMemoryService): # Inherit from BaseMemoryService
                 "timestamp": datetime.now(timezone.utc),
             }
             self.session_summaries.insert_one(summary_data)
-            logger.info(f"Successfully saved session summary for session_id: {session_id}.")
         except Exception as e:
-            logger.error(f"Error saving session summary for session {session_id}: {e}")
+            logger.error(f"Error saving session summary for session {session_id}: {e}", exc_info=True)
 
     async def add_session_to_memory(self, session: Session) -> None:
-        """
-        Ingests the contents of a completed Session into the long-term memory store.
-        This method is required by BaseMemoryService.
-        It iterates through the session's events and saves user/agent turns.
-        """
+        """Ingests a session's events into long-term memory."""
         logger.info(f"Adding session {session.id} to memory for user {session.user_id}.")
-        
         user_message_content = None
         for event in session.events:
             if event.author == "user" and event.content and event.content.parts:
                 user_message_content = event.content.parts[0].text
-            elif event.author == "model" and event.content and event.content.parts and user_message_content is not None:
+            elif event.author == "model" and event.content and event.content.parts and user_message_content:
                 agent_response_content = event.content.parts[0].text
                 self.add_interaction(
                     user_id=session.user_id,
                     session_id=session.id,
                     user_input=user_message_content,
-                    agent_response=agent_response_content,
-                    turn_sequence=0 # This will be recalculated by add_interaction
+                    agent_response=agent_response_content
                 )
-                user_message_content = None # Reset for next turn
+                user_message_content = None  # Reset for the next turn
         logger.info(f"Finished adding session {session.id} to memory.")
 
-    def add_interaction(self, user_id: str, session_id: str, user_input: str, agent_response: str, turn_sequence: int):
-        # CORRECTED CHECK
-        if self.interaction_history is None:
-            logger.error("MongoDB collection not available. Cannot add interaction.")
-            return
-        if not user_id:
-            logger.warning("add_interaction called with no user_id. Interaction will not be saved.")
-            return
-
-        # Generate embedding for the interaction (moved outside the dict definition)
-        embedding = None
-        if self.embedding_model:
-            try:
-                # Combine user input and agent response for a comprehensive embedding
-                combined_text = f"User: {user_input}\nAgent: {agent_response}"
-                embeddings_response = self.embedding_model.get_embeddings([combined_text])
-                if embeddings_response:
-                    embedding = embeddings_response[0].values
-            except Exception as e:
-                logger.error(f"Error generating embedding for interaction: {e}", exc_info=True)
-
-        interaction = {
-            "user_id": user_id,
-            "session_id": session_id,
-            "timestamp": datetime.now(timezone.utc),
-            "turn_sequence": turn_sequence,
-            "user_input": user_input,
-            "agent_response": agent_response,
-            "embedding": embedding, # Add the embedding
-
-        }
+    def _get_embedding(self, text: str) -> Optional[List[float]]:
+        """Generates an embedding for a given text."""
+        if not self.embedding_model:
+            return None
         try:
+            embeddings_response = self.embedding_model.get_embeddings([text])
+            return embeddings_response[0].values if embeddings_response else None
+        except Exception as e:
+            logger.error(f"Error generating embedding: {e}", exc_info=True)
+            return None
+
+    def add_interaction(self, user_id: str, session_id: str, user_input: str, agent_response: str):
+        """Adds a user-agent interaction to the database."""
+        if not self.interaction_history or not user_id:
+            logger.warning("Interaction not added due to missing collection or user_id.")
+            return
+
+        try:
+            turn_sequence = self.interaction_history.count_documents({"user_id": user_id, "session_id": session_id}) + 1
+            combined_text = f"User: {user_input}\nAgent: {agent_response}"
+            interaction = {
+                "user_id": user_id,
+                "session_id": session_id,
+                "timestamp": datetime.now(timezone.utc),
+                "turn_sequence": turn_sequence,
+                "user_input": user_input,
+                "agent_response": agent_response,
+                "embedding": self._get_embedding(combined_text),
+            }
             self.interaction_history.insert_one(interaction)
-            logger.debug(f"Added interaction to MongoDB for user_id: {user_id}, session_id: {session_id}")
+            logger.debug(f"Added interaction for user {user_id}, session {session_id}")
         except Exception as e:
             logger.error(f"Error adding interaction to MongoDB: {e}", exc_info=True)
 
     async def save_memory(self, ctx: InvocationContext, user_id: str, session_id: str, event: Event) -> None:
-        """
-        Saves an event to memory. This method is required by BaseMemoryService.
-        It adapts the ADK Event object to the format stored in MongoDB.
-        """
-        user_input = ""
-        agent_response = ""
+        """Saves an event to memory."""
+        user_input, agent_response = "", ""
         if event.author == "user" and event.content and event.content.parts:
-            user_input = event.content.parts[0].text if event.content.parts else ""
+            user_input = event.content.parts[0].text or ""
         elif event.author == "model" and event.content and event.content.parts:
-            agent_response = event.content.parts[0].text if event.content.parts else ""
-            
-        # Determine turn_sequence - this logic is duplicated from callbacks.py
-        current_turn_count_in_db = 0
-        if self.interaction_history is not None:
-            current_turn_count_in_db = self.interaction_history.count_documents(
-                {"user_id": user_id, "session_id": session_id}
-            )
-        turn_sequence = current_turn_count_in_db + 1
+            agent_response = event.content.parts[0].text or ""
         
-        self.add_interaction(user_id, session_id, user_input, agent_response, turn_sequence)
+        self.add_interaction(user_id, session_id, user_input, agent_response)
 
     def get_recent_interactions(self, user_id: str, session_id: str, limit: int = DEFAULT_HISTORY_LIMIT) -> List[Dict[str, Any]]:
-        # CORRECTED CHECK
-        if self.interaction_history is None:
-            logger.error("MongoDB collection not available. Cannot get recent interactions.")
-            return []
-        if not user_id or not session_id:
-            logger.warning(f"get_recent_interactions called without user_id or session_id.")
+        """Retrieves recent interactions for a given user and session."""
+        if not self.interaction_history or not user_id or not session_id:
+            logger.warning("get_recent_interactions called with missing arguments.")
             return []
 
         try:
             cursor = self.interaction_history.find(
                 {"user_id": user_id, "session_id": session_id}
             ).sort("timestamp", DESCENDING).limit(limit)
-            
-            interactions = list(cursor)
-            interactions.reverse() 
-            logger.debug(f"Retrieved {len(interactions)} recent interactions for user_id: {user_id}, session_id: {session_id}")
-            return interactions
+            return list(reversed(list(cursor)))
         except Exception as e:
-            logger.error(f"Error getting recent interactions from MongoDB: {e}", exc_info=True)
+            logger.error(f"Error getting recent interactions: {e}", exc_info=True)
             return []
 
     def get_recent_session_summaries(self, user_id: str, limit: int = 3) -> List[Dict[str, Any]]:
-        """
-        Retrieves the most recent session summaries for a given user.
-        """
-        if self.session_summaries is None:
-            logger.error("MongoDB collection not available. Cannot get recent session summaries.")
-            return []
-        if not user_id:
-            logger.warning(f"get_recent_session_summaries called without user_id.")
+        """Retrieves recent session summaries for a given user."""
+        if not self.session_summaries or not user_id:
+            logger.warning("get_recent_session_summaries called with missing arguments.")
             return []
 
         try:
             cursor = self.session_summaries.find(
                 {"user_id": user_id}
             ).sort("timestamp", DESCENDING).limit(limit)
-
-            summaries = list(cursor)
-            summaries.reverse()
-            logger.debug(f"Retrieved {len(summaries)} recent session summaries for user_id: {user_id}")
-            return summaries
+            return list(reversed(list(cursor)))
         except Exception as e:
-            logger.error(f"Error getting recent session summaries from MongoDB: {e}", exc_info=True)
+            logger.error(f"Error getting recent session summaries: {e}", exc_info=True)
             return []
-    
+
     async def load_memory(self, ctx: InvocationContext, user_id: str, session_id: str, limit: Optional[int] = None) -> AsyncGenerator[Event, None]:
-        """
-        Loads memory from the memory service. This method is required by BaseMemoryService.
-        It adapts the MongoDB interactions to ADK Event objects.
-        """
-        interactions = self.get_recent_interactions(user_id, session_id, limit)
-        for interaction in interactions:
-            if interaction.get("user_input"):
-                yield Event(
-                    invocation_id=ctx.invocation_id, # Use current invocation ID for these loaded events
-                    author="user",
-                    content=Content(parts=[Part(text=interaction["user_input"])])
-                )
-            if interaction.get("agent_response"):
-                yield Event(
-                    invocation_id=ctx.invocation_id,
-                    author="model",
-                    content=Content(parts=[Part(text=interaction["agent_response"])])
-                )
+        """Loads memory and yields it as a stream of events."""
+        limit = limit or DEFAULT_HISTORY_LIMIT
+        for interaction in self.get_recent_interactions(user_id, session_id, limit):
+            if user_input := interaction.get("user_input"):
+                yield Event(invocation_id=ctx.invocation_id, author="user", content=Content(parts=[Part(text=user_input)]))
+            if agent_response := interaction.get("agent_response"):
+                yield Event(invocation_id=ctx.invocation_id, author="model", content=Content(parts=[Part(text=agent_response)]))
 
     def search_interactions_by_keyword(self, user_id: str, session_id: Optional[str], query: str, limit: int = 3) -> List[Dict[str, Any]]:
-        # CORRECTED CHECK
-        if self.interaction_history is None:
-            logger.warning("MongoDB collection not available. Cannot search interactions by keyword.")
-            return []
-        if not user_id:
-            logger.warning("search_interactions_by_keyword called with no user_id.")
+        """Searches interactions by keyword."""
+        if not self.interaction_history or not user_id:
+            logger.warning("search_interactions_by_keyword called with missing arguments.")
             return []
 
         try:
-            mongo_db_query: Dict[str, Any] = {"user_id": user_id, "$text": {"$search": query}}
+            mongo_query = {"user_id": user_id, "$text": {"$search": query}}
             if session_id:
-                mongo_db_query["session_id"] = session_id
+                mongo_query["session_id"] = session_id
 
-            cursor = self.interaction_history.find(mongo_db_query, {"score": {"$meta": "textScore"}}) \
+            cursor = self.interaction_history.find(mongo_query, {"score": {"$meta": "textScore"}}) \
                                    .sort([("score", {"$meta": "textScore"})]) \
                                    .limit(limit)
-            interactions = list(cursor)
-            interactions.reverse()
-            logger.debug(f"Keyword search for '{query}' found {len(interactions)} interactions for user_id: {user_id}.")
-            return interactions
+            return list(reversed(list(cursor)))
         except Exception as e:
             logger.error(f"Error searching interactions by keyword: {e}", exc_info=True)
             return []
 
-
     async def search_memory(self, ctx: InvocationContext, user_id: str, session_id: str, query: str, limit: Optional[int] = None) -> AsyncGenerator[Event, None]:
-        """
-        Searches memory from the memory service. This method is required by BaseMemoryService.
-        """
-        interactions = self.search_interactions_by_keyword(user_id, session_id, query, limit)
-        for interaction in interactions:
-            if interaction.get("user_input"):
-                yield Event(invocation_id=ctx.invocation_id, author="user", content=Content(parts=[Part(text=interaction["user_input"])]))
-            if interaction.get("agent_response"):
-                yield Event(invocation_id=ctx.invocation_id, author="model", content=Content(parts=[Part(text=interaction["agent_response"])]))
-
+        """Searches memory and yields it as a stream of events."""
+        limit = limit or 3
+        for interaction in self.search_interactions_by_keyword(user_id, session_id, query, limit):
+            if user_input := interaction.get("user_input"):
+                yield Event(invocation_id=ctx.invocation_id, author="user", content=Content(parts=[Part(text=user_input)]))
+            if agent_response := interaction.get("agent_response"):
+                yield Event(invocation_id=ctx.invocation_id, author="model", content=Content(parts=[Part(text=agent_response)]))
 
     async def clear_memory(self, ctx: InvocationContext, user_id: str, session_id: str) -> None:
-        """Clears memory from the memory service. This method is required by BaseMemoryService."""
-        if not user_id or not session_id:
-            logger.warning(f"clear_memory called without user_id or session_id. No data will be cleared.")
+        """Clears memory for a given user and session."""
+        if not self.interaction_history or not user_id or not session_id:
+            logger.warning("clear_memory called with missing arguments.")
             return
         try:
             result = self.interaction_history.delete_many({"user_id": user_id, "session_id": session_id})
-            logger.info(f"Cleared {result.deleted_count} interactions for user_id: {user_id}, session_id: {session_id}")
+            logger.info(f"Cleared {result.deleted_count} interactions for session {session_id}.")
         except Exception as e:
-            logger.error(f"Error clearing memory for user_id: {user_id}, session_id: {session_id}: {e}", exc_info=True)
-
-
+            logger.error(f"Error clearing memory for session {session_id}: {e}", exc_info=True)
 
     async def vector_search_interactions(self, user_id: str, session_id: str, query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Performs a vector search on conversation history, scoped to a specific user.
-        """
-        if self.interaction_history is None:
-            logger.error("MongoDB collection not available. Cannot perform hybrid search.")
+        """Performs a vector search on conversation history."""
+        if not self.interaction_history or not user_id:
+            logger.warning("vector_search_interactions called with missing arguments.")
             return []
-        if self.embedding_model is None:
-            logger.warning("Embedding model not initialized. Cannot perform vector search. Falling back to text search.")
-            return self.search_interactions_by_keyword(user_id, session_id, query_text, limit) # Fallback to text search
-        if not user_id:
-            logger.warning("vector_search_interactions called with no user_id.")
-            return []
+        if not self.embedding_model:
+            logger.warning("Embedding model not initialized. Falling back to keyword search.")
+            return self.search_interactions_by_keyword(user_id, session_id, query_text, limit)
 
         try:
-            # 1. Generate embedding for the query
-            query_embedding = None
-            try:
-                embeddings_response = self.embedding_model.get_embeddings([query_text])
-                if embeddings_response:
-                    query_embedding = embeddings_response[0].values
-            except Exception as e:
-                logger.error(f"Error generating query embedding for hybrid search: {e}", exc_info=True)
-                # If embedding fails, fall back to text search
+            query_embedding = self._get_embedding(query_text)
+            if not query_embedding:
                 return self.search_interactions_by_keyword(user_id, session_id, query_text, limit)
 
-            # Define the Atlas Vector Search pipeline.
-            # This is simpler and aligns with the tutorial's approach.
             pipeline = [
-                {
-                    "$vectorSearch": {
-                        "index": "default", # Ensure this matches your Atlas Search index name
-                        "path": "embedding",
-                        "queryVector": query_embedding,
-                        "numCandidates": limit + 50,
-                        "limit": limit,
-                        "filter": {"user_id": user_id} # CRITICAL: This isolates user data at the database level.
-                    }
-                },
-                {
-                    "$match": {
-                        "user_input": {"$not": {"$regex": "^remember our", "$options": "i"}}
-                    }
-                },
-                {
-                    "$project": {
-                        "_id": 0,
-                        "user_id": 1,
-                        "session_id": 1,
-                        "timestamp": 1,
-                        "turn_sequence": 1,
-                        "user_input": 1,
-                        "agent_response": 1,
-                        "score": {"$meta": "searchScore"} # Get the combined search score
-                    }
-                },
-                {"$sort": {"score": -1}}, # Sort by relevance
+                {"$vectorSearch": {
+                    "index": "default", "path": "embedding", "queryVector": query_embedding,
+                    "numCandidates": limit + 50, "limit": limit, "filter": {"user_id": user_id}
+                }},
+                {"$match": {"user_input": {"$not": {"$regex": "^remember our", "$options": "i"}}}},
+                {"$project": {
+                    "_id": 0, "user_id": 1, "session_id": 1, "timestamp": 1, "turn_sequence": 1,
+                    "user_input": 1, "agent_response": 1, "score": {"$meta": "searchScore"}
+                }},
+                {"$sort": {"score": -1}},
                 {"$limit": limit}
             ]
-
-            results = list(self.interaction_history.aggregate(pipeline))
-            logger.debug(f"Vector search for '{query_text}' found {len(results)} interactions for user_id: {user_id}.")
-            return results
+            return list(self.interaction_history.aggregate(pipeline))
         except Exception as e:
-            logger.error(f"Error performing hybrid search: {e}", exc_info=True)
+            logger.error(f"Error performing vector search: {e}", exc_info=True)
             return []
 
     async def search_persona_and_interactions(self, user_id: str, session_id: str, query_text: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """
-        Searches both persona data and interaction history for relevant information.
-        """
+        """Searches both persona data and interaction history."""
         results = []
-        # Search persona data
-        persona_data = self.get_persona(user_id)
-        if persona_data:
-            # A simple check to see if the query is about the user's name
+        if persona_data := self.get_persona(user_id):
             if "name" in query_text.lower() or "who am i" in query_text.lower():
                 results.append({"source": "persona", "data": persona_data})
 
-        # Search interaction history
         enriched_query = f"A conversation about: {query_text}"
         interaction_results = await self.vector_search_interactions(user_id, session_id, enriched_query, limit)
-        if interaction_results:
-            results.extend([{"source": "interaction", "data": item} for item in interaction_results])
+        results.extend([{"source": "interaction", "data": item} for item in interaction_results])
 
         return results
 
