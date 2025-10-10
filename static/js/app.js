@@ -284,10 +284,10 @@ function parseStructuredContent(text) {
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         
-        // Detect chart image URLs
         const chartImageMatch = line.match(/^\/?static\/charts\/[a-zA-Z0-9_-]+\.png\]?$/);
         // Detect medical scan image URLs (matches /static/medical_images/series_uid/filename.png)
-        const medicalImageMatch = line.match(/^\/?static\/medical_images\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\.png\]?$/);
+        const medicalImageMatch = line.match(/^\[?(\/static\/medical_images\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\.png)\]?$/);
+        
 
         if (chartImageMatch) {
             // Finalize current section
