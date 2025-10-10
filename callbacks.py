@@ -110,22 +110,13 @@ async def save_interaction_after_model_callback( # Changed to async def
             agent_final_response_text = llm_response.content.parts[0].text or "Agent provided non-text response"
         logger.info(f"Save Callback - Found Agent Response: '{agent_final_response_text[:100]}'") # Access text property
 
-        # Correctly get current turn count for the sequence
-        current_turn_count_in_db = 0
-        if mongo_memory_service.interaction_history is not None: # Check again before using
-            current_turn_count_in_db = mongo_memory_service.interaction_history.count_documents(
-                {"user_id": user_id, "session_id": session_id}
-            )
-        turn_sequence = current_turn_count_in_db + 1
-
-        logger.info(f"[Callback: AfterAgent] SAVING - User: '{last_user_input_text[:50]}...', Agent: '{agent_final_response_text[:50]}...' for user {user_id}, session {session_id}, turn {turn_sequence}")
+        logger.info(f"[Callback: AfterAgent] SAVING - User: '{last_user_input_text[:50]}...', Agent: '{agent_final_response_text[:50]}...' for user {user_id}, session {session_id}")
         
         mongo_memory_service.add_interaction(
             user_id=user_id,
             session_id=session_id,
             user_input=last_user_input_text,
-            agent_response=agent_final_response_text,
-            turn_sequence=turn_sequence
+            agent_response=agent_final_response_text
         )
 
     except Exception as e:
