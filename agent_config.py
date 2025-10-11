@@ -1021,8 +1021,8 @@ def create_streaming_agent_with_mcp_tools(
              security_check_callback,  # Security check runs first!
              load_memory_before_model_callback,
         ],
-       "after_model_callback": save_interaction_after_model_callback,
-       "end_of_session_callback": end_of_session_callback,
+       "after_model_callback": [save_interaction_after_model_callback],
+       "end_of_session_callback": [end_of_session_callback],
     }
     all_root_agent_tools: List[Any] = []
 

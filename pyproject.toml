@@ -44,4 +44,12 @@ dependencies = [
     "opentelemetry-sdk>=1.36.0",
     "opentelemetry-exporter-otlp-proto-http>=1.36.0",
     "google-genai>=1.33.0",
+    "pytest>=8.4.2",
+    "httpx>=0.28.1",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.4.2",
+    "httpx>=0.28.1",
 ]
