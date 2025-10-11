@@ -12,7 +12,7 @@ from google.adk.events import Event
 # from .mongo_memory import mongo_memory_service, HISTORY_LIMIT, MongoMemory 
 from security import sanitize_prompt_with_model_armor
 # For simplicity, if mongo_memory.py is in the same directory:
-from mongo_memory import mongo_memory_service, DEFAULT_HISTORY_LIMIT # Make sure MongoMemory class is also available if needed
+from google.adk.memory import VertexAiMemoryBankService
 from session_processor import SessionProcessorAgent
 import json
 
@@ -81,46 +81,26 @@ async def save_interaction_after_model_callback( # Changed to async def
     llm_response: LlmResponse,
 ) -> Optional[LlmResponse]:
     """
-    Saves the user's input and the agent's final response to MongoDB.
+    Saves the user's input and the agent's final response to the Memory Bank.
     This runs *after* the model generates a response.
     """
-    # Add an unmissable print statement for debugging. This will print to your server's console.
-    if not mongo_memory_service or mongo_memory_service.interaction_history is None:
-        logger.warning("MongoMemoryService not available in save_interaction_callback. Skipping save.")
-        return None
-
     try:
         # Access the session through the internal invocation_context
         user_id = callback_context._invocation_context.session.user_id
         session_id = callback_context._invocation_context.session.id
-        logger.info(f"Save Callback - User: {user_id}, Session: {session_id}")
-
-        # --- Get the last user input from the session events ---
-        last_user_input_text = "User input not found"
-        for event in reversed(callback_context._invocation_context.session.events):
-            if event.author == "user" and event.content and event.content.parts:
-                last_user_input_text = event.content.parts[0].text or "User provided non-text input" # Access text property
-                break
-        logger.info(f"Save Callback - Found User Input: '{last_user_input_text[:100]}'")
-
-        # --- Get the Agent's final response from the session events ---
-        agent_final_response_text = "Agent response not found"
-        # Get the agent's response directly from the llm_response object.
-        if llm_response.content and llm_response.content.parts:
-            agent_final_response_text = llm_response.content.parts[0].text or "Agent provided non-text response"
-        logger.info(f"Save Callback - Found Agent Response: '{agent_final_response_text[:100]}'") # Access text property
-
-        logger.info(f"[Callback: AfterAgent] SAVING - User: '{last_user_input_text[:50]}...', Agent: '{agent_final_response_text[:50]}...' for user {user_id}, session {session_id}")
         
-        mongo_memory_service.add_interaction(
-            user_id=user_id,
-            session_id=session_id,
-            user_input=last_user_input_text,
-            agent_response=agent_final_response_text
-        )
+        # Directly use the memory_service from the invocation context
+        memory_service = callback_context._invocation_context.runner.memory_service
+        if isinstance(memory_service, VertexAiMemoryBankService):
+            # The ADK session object is automatically updated with the latest turn.
+            # We can pass the whole session to the memory service.
+            await memory_service.add_session_to_memory(callback_context._invocation_context.session)
+            logger.info(f"Save Callback - Session {session_id} sent to Memory Bank for processing.")
+        else:
+            logger.warning("VertexAiMemoryBankService not available in save_interaction_callback. Skipping save.")
 
     except Exception as e:
-        logger.error(f"Error in save_interaction_after_agent_callback: {e}", exc_info=True)
+        logger.error(f"Error in save_interaction_after_model_callback: {e}", exc_info=True)
     
     # Return None to indicate we are not modifying the LLM's response.
     return None
@@ -132,69 +112,49 @@ async def load_memory_before_model_callback( # Changed to async def
     llm_request: LlmRequest # ADK provides this specific arg for before_model
 ) -> Optional[LlmResponse]:
     """
-    Retrieves recent interactions and the user's persona from MongoDB to provide
+    Retrieves recent interactions and the user's persona from the Memory Bank to provide
     context to the LLM.
     """
-    if not mongo_memory_service or mongo_memory_service.interaction_history is None:
-        logger.warning("MongoMemoryService not available in load_memory_before_model_callback. Skipping memory load.")
-        return None 
-
     try:
         user_id = callback_context._invocation_context.session.user_id
-        session_id = callback_context._invocation_context.session.id
+        app_name = callback_context._invocation_context.runner.app_name
 
-        # --- NEW: Persona Loading ---
-        persona_summary = ""
-        persona = mongo_memory_service.get_persona(user_id)
-        if persona:
-            name = persona.get('name', 'there') # Use a neutral default if name is missing
-            goals_list = persona.get('goals', [])
-            goals_str = ", ".join(goals_list) if goals_list else "not specified"
-            # This is a more direct instruction for the LLM
-            persona_summary = f"[System Note: This is a returning user. Their name is {name}. Their stated goals are: {goals_str}. You MUST greet them by name before addressing their current request.]"
-            logger.info(f"Loaded persona for user {user_id}: {name}")
-        else:
-            persona_summary = "[System Note: This is a new user. Your ONLY first action is to call the `PersonaManagementAgent` to greet them and establish a persona. Pass the user's current query to it.]"
-            logger.info(f"No persona found for new user {user_id}.")
+        # Directly use the memory_service from the invocation context
+        memory_service = callback_context._invocation_context.runner.memory_service
+        if not isinstance(memory_service, VertexAiMemoryBankService):
+            logger.warning("VertexAiMemoryBankService not available in load_memory_before_model_callback. Skipping memory load.")
+            return None
 
-        # --- Combine with History ---
-        logger.info(f"[Callback: BeforeModel] Loading recent chronological interactions (limit={DEFAULT_HISTORY_LIMIT}) for user {user_id}, session {session_id}")
-        recent_interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=DEFAULT_HISTORY_LIMIT)
-        
-        history_contents: List[Content] = []
-        if recent_interactions:
-            logger.info(f"[Callback: BeforeModel] Loaded {len(recent_interactions)} past interactions into prompt.")
-            
-            for interaction in recent_interactions:
-                if interaction.get("user_input"):
-                    history_contents.append(Content(role="user", parts=[Part.from_text(text=interaction["user_input"])]))
-                if interaction.get("agent_response"):
-                    history_contents.append(Content(role="model", parts=[Part.from_text(text=interaction["agent_response"])]))
-        else:
-            logger.info(f"[Callback: BeforeModel] No relevant past interactions found for user {user_id}, session {session_id}.")
-
-        # --- Combine with Session Summaries ---
-        session_summaries = mongo_memory_service.get_recent_session_summaries(user_id, limit=3)
-        summaries_content = []
-        if session_summaries:
-            summary_text = "Here are summaries of recent sessions:\n"
-            for summary in session_summaries:
-                summary_text += f"- {summary['summary']}\n"
-            summaries_content.append(Content(role="user", parts=[Part.from_text(text=summary_text)]))
-
-        # --- Prepending to the Prompt ---
-        # The order is important: System Note, then History, then current query.
-        # Create a new Content object for the persona summary.
-        # The role 'user' is often used for system-level instructions that the model should see.
-        persona_content = Content(role="user", parts=[Part.from_text(text=persona_summary)])
-
+        # Get the last user query
+        last_user_query = ""
         if llm_request.contents:
-            # Prepend the persona content, then the history, to the current request's contents.
-            llm_request.contents = [persona_content] + summaries_content + history_contents + llm_request.contents
+            last_content = llm_request.contents[-1]
+            if last_content.role == 'user' and last_content.parts:
+                last_user_query = last_content.parts[0].text or ""
+
+        # Search for relevant memories
+        retrieved_memories = await memory_service.search_memory(
+            user_id=user_id,
+            app_name=app_name,
+            query=last_user_query,
+            limit=5  # Or your desired limit
+        )
+
+        if retrieved_memories:
+            # Format memories and prepend them to the prompt
+            memory_summary = "[System Note: Here are some relevant facts from past conversations]:\n"
+            for fact in retrieved_memories:
+                memory_summary += f"- {fact}\n"
+            
+            memory_content = Content(role="user", parts=[Part.from_text(text=memory_summary)])
+            llm_request.contents = [memory_content] + llm_request.contents
+            logger.info(f"Loaded {len(retrieved_memories)} memories for user {user_id}.")
         else:
-            llm_request.contents = [persona_content] + summaries_content + history_contents
+            logger.info(f"No relevant memories found for user {user_id}.")
+
     except Exception as e:
         logger.error(f"Error in load_memory_before_model_callback: {e}", exc_info=True)
+    return None
 
 async def end_of_session_callback(
     callback_context: CallbackContext,
@@ -202,45 +162,19 @@ async def end_of_session_callback(
     """
     Processes the session's conversation history at the end of the session.
     """
-    if not mongo_memory_service:
-        logger.warning("MongoMemoryService not available in end_of_session_callback. Skipping session processing.")
-        return
-
     try:
         user_id = callback_context._invocation_context.session.user_id
         session_id = callback_context._invocation_context.session.id
 
-        # Get all interactions for the session
-        interactions = mongo_memory_service.get_recent_interactions(user_id, session_id, limit=100) # Get all interactions
-
-        if not interactions:
-            logger.info(f"No interactions found for session {session_id}. Skipping session processing.")
-            return
-
-        # Format the conversation history for the SessionProcessorAgent
-        conversation_history = ""
-        for interaction in interactions:
-            conversation_history += f"User: {interaction['user_input']}\n"
-            conversation_history += f"Agent: {interaction['agent_response']}\n"
-
-        # Invoke the SessionProcessorAgent
-        llm_response = await SessionProcessorAgent.run_async(request=conversation_history)
-
-        # Process the response from the SessionProcessorAgent
-        if llm_response.content and llm_response.content.parts:
-            response_text = llm_response.content.parts[0].text
-            response_json = json.loads(response_text)
-
-            summary = response_json.get("summary")
-            extracted_info = response_json.get("extracted_info")
-
-            # Update the user's persona with the extracted information
-            if extracted_info:
-                mongo_memory_service.create_or_update_persona(user_id, extracted_info)
-
-            # Save the session summary
-            if summary:
-                mongo_memory_service.save_session_summary(user_id, session_id, summary)
+        # Directly use the memory_service from the invocation context
+        memory_service = callback_context._invocation_context.runner.memory_service
+        if isinstance(memory_service, VertexAiMemoryBankService):
+            # The ADK session object is automatically updated with the latest turn.
+            # We can pass the whole session to the memory service.
+            await memory_service.add_session_to_memory(callback_context._invocation_context.session)
+            logger.info(f"End of Session Callback - Session {session_id} sent to Memory Bank for processing.")
+        else:
+            logger.warning("VertexAiMemoryBankService not available in end_of_session_callback. Skipping session processing.")
 
     except Exception as e:
         logger.error(f"Error in end_of_session_callback: {e}", exc_info=True)

@@ -24,7 +24,7 @@ from google.adk.agents import LoopAgent, SequentialAgent, BaseAgent, LlmAgent
 from google.adk.events import Event, EventActions
 from google.adk.planners import BuiltInPlanner
 from typing import Any, Dict, List, Optional, Literal, AsyncGenerator
-from mongo_memory import mongo_memory_service, MongoMemory # If in mongo_memory.py
+from google.adk.memory import VertexAiMemoryBankService
 from callbacks import (
     security_check_callback,  # Import the new callback
     load_memory_before_model_callback,
@@ -475,8 +475,23 @@ async def create_or_update_persona(tool_context: ToolContext, name: str, goals: 
     # The persona_data dictionary can be expanded later to include more fields like 'preferences'
     # For now, we'll stick to what the agent is instructed to collect.
     persona_data = {"name": name, "goals": goals}
-    mongo_memory_service.create_or_update_persona(user_id, persona_data)
-    return f"Successfully saved persona for {name}."
+    
+    # Directly use the memory_service from the invocation context
+    memory_service = invocation_context.runner.memory_service
+    if isinstance(memory_service, VertexAiMemoryBankService):
+        # Create a memory fact string from the persona data
+        fact = f"User's name is {name} and their goals are: {', '.join(goals)}."
+        
+        # Use GenerateMemories to add or update the persona information
+        await memory_service.generate_memories(
+            user_id=user_id,
+            app_name="ADK MCP Streaming App",  # Or your app name
+            facts=[fact]
+        )
+        return f"Successfully saved persona for {name}."
+    else:
+        return "Persona could not be saved. Memory service is not configured correctly."
+
 
 
 # NEW: Instruction for the "Smart Ingestion Router" Agent
@@ -1474,8 +1489,21 @@ To cite a source, you **MUST** insert a special citation tag directly after the 
         """
         invocation_context = tool_context._invocation_context
         user_id = invocation_context.session.user_id
-        session_id = invocation_context.session.id
-        return await mongo_memory_service.search_persona_and_interactions(user_id, session_id, query_text, limit)
+        
+        # Directly use the memory_service from the invocation context
+        memory_service = invocation_context.runner.memory_service
+        if isinstance(memory_service, VertexAiMemoryBankService):
+            # Use search_memory to retrieve relevant facts
+            results = await memory_service.search_memory(
+                user_id=user_id,
+                app_name="ADK MCP Streaming App",  # Or your app name
+                query=query_text,
+                limit=limit
+            )
+            # Format the results into a list of dictionaries
+            return [{"retrieved_fact": fact} for fact in results]
+        else:
+            return [{"error": "Memory service not configured correctly."}]
 
     # NEW: Create the Deep Memory Recall agent and wrap it as a tool
     deep_memory_recall_agent = LlmAgent(
